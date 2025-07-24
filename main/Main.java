@@ -3,12 +3,6 @@ package main;
 import java.net.*;
 import java.util.*;
 
-import handlers.DMHandler;
-import handlers.FileTransferHandler;
-import handlers.GameHandler;
-import handlers.GroupHandler;
-import handlers.PostHandler;
-
 public class Main {
     private static final int PORT = 50999;
     private static boolean verbose = false;
@@ -31,29 +25,29 @@ public class Main {
 
             switch (input) {
                 case "1":
-                    handlers.PostHandler.send(socket);
+                    // handlers.PostHandler.send(socket);
                     break;
                 case "2":
-                    handlers.DMHandler.send(socket);
+                    // handlers.DMHandler.send(socket);
                     break;
                 case "3":
-                    handlers.GroupHandler.show();
+                    // handlers.GroupHandler.show();
                     break;
                 case "4":
-                    handlers.GroupHandler.createOrUpdate(socket);
+                    // handlers.GroupHandler.createOrUpdate(socket);
                     break;
                 case "5":
-                    handlers.GroupHandler.sendMessage(socket);
+                    // handlers.GroupHandler.sendMessage(socket);
                     break;
                 case "6":
-                    handlers.FileTransferHandler.initiate(socket);
+                    // handlers.FileTransferHandler.initiate(socket);
                     break;
                 case "7":
-                    handlers.GameHandler.start(socket);
+                    // handlers.GameHandler.start(socket);
                     break;
                 case "8":
                     verbose = !verbose;
-                    handlers.VerboseLogger.setEnabled(verbose);
+                    // handlers.VerboseLogger.setEnabled(verbose);
                     System.out.println("Verbose mode: " + (verbose ? "ON" : "OFF"));
                     break;
                 case "0":
@@ -90,52 +84,55 @@ public class Main {
                 String msg = new String(packet.getData(), 0, packet.getLength(), "UTF-8");
                 InetAddress senderIP = packet.getAddress();
 
-                Map<String, String> parsed = MessageParser.parse(msg);
-                String from = parsed.getOrDefault("FROM", parsed.getOrDefault("USER_ID", ""));
+                // Map<String, String> parsed = MessageParser.parse(msg);
+                // String from = parsed.getOrDefault("FROM", parsed.getOrDefault("USER_ID",
+                // ""));
 
-                if (!IPLogger.verifyIP(from, senderIP.getHostAddress())) {
-                    handlers.VerboseLogger.drop("IP mismatch from " + senderIP);
-                    continue;
-                }
+                // if (!IPLogger.verifyIP(from, senderIP.getHostAddress())) {
+                // handlers.VerboseLogger.drop("IP mismatch from " + senderIP);
+                // continue;
+                // }
 
-                if (!TokenValidator.validate(parsed)) {
-                    handlers.VerboseLogger.drop("Token invalid or expired.");
-                    continue;
-                }
+                // if (!TokenValidator.validate(parsed)) {
+                // handlers.VerboseLogger.drop("Token invalid or expired.");
+                // continue;
+                // }
 
-                handlers.VerboseLogger.recv(parsed, senderIP.getHostAddress());
+                // handlers.VerboseLogger.recv(parsed, senderIP.getHostAddress());
 
-                String type = parsed.get("TYPE");
-                switch (type) {
-                    case "FILE_OFFER":
-                    case "FILE_CHUNK":
-                    case "FILE_RECEIVED":
-                        handlers.FileTransferHandler.handle(parsed);
-                        break;
-
-                    case "GROUP_CREATE":
-                    case "GROUP_UPDATE":
-                    case "GROUP_MESSAGE":
-                        handlers.GroupHandler.handle(parsed);
-                        break;
-
-                    case "POST":
-                        handlers.PostHandler.handle(parsed);
-                        break;
-
-                    case "DM":
-                        handlers.DMHandler.handle(parsed);
-                        break;
-
-                    case "TICTACTOE_INVITE":
-                    case "TICTACTOE_MOVE":
-                    case "TICTACTOE_RESULT":
-                        handlers.GameHandler.handle(parsed);
-                        break;
-
-                    default:
-                        handlers.VerboseLogger.log("Unhandled TYPE: " + type);
-                }
+                // String type = parsed.get("TYPE");
+                /*
+                 * switch (type) {
+                 * case "FILE_OFFER":
+                 * case "FILE_CHUNK":
+                 * case "FILE_RECEIVED":
+                 * handlers.FileTransferHandler.handle(parsed);
+                 * break;
+                 * 
+                 * case "GROUP_CREATE":
+                 * case "GROUP_UPDATE":
+                 * case "GROUP_MESSAGE":
+                 * handlers.GroupHandler.handle(parsed);
+                 * break;
+                 * 
+                 * case "POST":
+                 * handlers.PostHandler.handle(parsed);
+                 * break;
+                 * 
+                 * case "DM":
+                 * handlers.DMHandler.handle(parsed);
+                 * break;
+                 * 
+                 * case "TICTACTOE_INVITE":
+                 * case "TICTACTOE_MOVE":
+                 * case "TICTACTOE_RESULT":
+                 * handlers.GameHandler.handle(parsed);
+                 * break;
+                 * 
+                 * default:
+                 * handlers.VerboseLogger.log("Unhandled TYPE: " + type);
+                 * }
+                 */
             }
         } catch (Exception e) {
             System.err.println("Listener error: " + e.getMessage());
