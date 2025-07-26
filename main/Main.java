@@ -47,7 +47,7 @@ public class Main {
                     break;
                 case "8":
                     verbose = !verbose;
-                    // handlers.VerboseLogger.setEnabled(verbose);
+                    main.utils.VerboseLogger.setEnabled(verbose);
                     System.out.println("Verbose mode: " + (verbose ? "ON" : "OFF"));
                     break;
                 case "0":
