@@ -33,15 +33,15 @@ public class UDPSocketManager {
     public String receiveMessage() throws IOException {
         byte[] buffer = new byte[65535];
         DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
-        
+
         try {
             socket.receive(packet);
             this.lastSenderAddress = packet.getAddress();
             this.lastSenderPort = packet.getPort();
             String received = new String(packet.getData(), 0, packet.getLength(), "UTF-8");
             if (verbose) {
-                System.out.println("[RECV] From " + packet.getAddress().getHostAddress() + 
-                                ":" + packet.getPort() + " - " + received);
+                System.out.println("[RECV] From " + packet.getAddress().getHostAddress() +
+                        ":" + packet.getPort() + " - " + received);
             }
             return received;
         } catch (SocketTimeoutException e) {
@@ -52,7 +52,8 @@ public class UDPSocketManager {
     public void close() {
         if (socket != null && !socket.isClosed()) {
             socket.close();
-            if (verbose) System.out.println("[INFO] Socket closed");
+            if (verbose)
+                System.out.println("[INFO] Socket closed");
         }
     }
 

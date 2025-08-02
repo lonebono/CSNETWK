@@ -8,13 +8,12 @@ import java.util.concurrent.ConcurrentHashMap;
 public class TokenValidator {
     private static final Set<String> revokedTokens = ConcurrentHashMap.newKeySet();
 
-    // Generate token: format "userId:expiryTimestamp"
-    public static String generate(String userId, long durationMillis) {
-        long expiry = Instant.now().toEpochMilli() + durationMillis;
-        return userId + ":" + expiry;
+    public static String generate(String userId, long durationMillis, String scope) {
+        long expiry = Instant.now().getEpochSecond() + durationMillis / 1000;
+        return userId + "|" + expiry + "|" + scope;
     }
 
-    public static boolean validate(Map<String, String> msg) {
+    public static boolean validate(Map<String, String> msg, String expectedScope) {
         String userId = msg.getOrDefault("FROM", msg.getOrDefault("USER_ID", null));
         String token = msg.get("TOKEN");
 
@@ -24,26 +23,24 @@ public class TokenValidator {
         }
 
         try {
-            String[] parts = token.split(":");
-            if (parts.length != 2) {
+            String[] parts = token.split("\\|");
+            if (parts.length != 3) {
                 VerboseLogger.token(userId, false);
                 return false;
             }
 
+            String tokenUser = parts[0];
             long expiry = Long.parseLong(parts[1]);
-            long now = Instant.now().toEpochMilli();
+            String tokenScope = parts[2];
 
-            if (revokedTokens.contains(token)) {
-                if (now > expiry) {
-                    revokedTokens.remove(token);
-                } else {
-                    VerboseLogger.token(userId, false);
-                    return false;
-                }
-            }
+            long now = Instant.now().getEpochSecond();
 
-            boolean valid = now <= expiry;
+            boolean valid = now <= expiry
+                    && tokenScope.equals(expectedScope)
+                    && !revokedTokens.contains(token);
+
             VerboseLogger.token(userId, valid);
+
             return valid;
         } catch (Exception e) {
             VerboseLogger.token(userId, false);
