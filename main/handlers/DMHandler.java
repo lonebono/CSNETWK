@@ -38,7 +38,6 @@ public class DMHandler {
     }
 
     public void handle(Map<String, String> message) {
-        System.out.println("[DEBUG] DMHandler.handle() called with message:");
         message.forEach((k, v) -> System.out.println(k + ": " + v));
 
         String from = message.get("FROM");
