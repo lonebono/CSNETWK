@@ -3,49 +3,73 @@ package main;
 import java.net.*;
 import java.util.*;
 import main.handlers.*;
+import main.utils.ConsoleInput;
 import main.utils.IPLogger;
 import main.utils.MessageParser;
 import main.utils.TokenValidator;
 import main.utils.VerboseLogger;
 
 public class Main {
-    private static final int PORT = 50999;
+    private static int PORT = 50999;
     private static boolean verbose = false;
-    private static final Scanner scanner = new Scanner(System.in);
     private static UDPSocketManager socketManager;
     private static String currentUser;
 
     public static void main(String[] args) {
         try {
+            if (args.length > 0) {
+                try {
+                    PORT = Integer.parseInt(args[0]);
+                } catch (NumberFormatException e) {
+                    System.err.println("Invalid port arguement, defaulting to 50999");
+                }
+            }
+
             System.out.println("[DEBUG] Starting LSNP on port " + PORT);
             socketManager = new UDPSocketManager(PORT);
-            System.err.println("Enter your username: ");
-            currentUser = scanner.nextLine().trim();
+            InetAddress localIP = InetAddress.getLocalHost();
+            System.out.println("Local IP: " + localIP.getHostAddress());
+            currentUser = ConsoleInput.readLine("Enter your username: ").trim();
             System.out.println("[DEBUG] Current user set to: " + currentUser);
 
             PostHandler postHandler = new PostHandler(socketManager, currentUser);
             DMHandler dmHandler = new DMHandler(socketManager, currentUser);
+            FileHandler fileHandler = new FileHandler(socketManager, currentUser);
+            PingHandler pingHandler = new PingHandler(socketManager, currentUser);
+
+            /*
+             * new Thread(() -> {
+             * while (true) {
+             * pingHandler.broadcastPing();
+             * try {
+             * Thread.sleep(10000); // Ping every 5 seconds
+             * } catch (InterruptedException e) {
+             * break;
+             * }
+             * }
+             * }).start();
+             */
 
             System.out.println("[DEBUG] Starting listener thread...");
-            new Thread(() -> startListener(socketManager, postHandler, dmHandler)).start();
-            runMenu(socketManager, postHandler, dmHandler);
+            new Thread(() -> startListener(socketManager, postHandler, dmHandler, fileHandler)).start();
+            runMenu(socketManager, postHandler, dmHandler, fileHandler);
         } catch (Exception e) {
             System.err.println("LSNP Error: " + e.getMessage());
             e.printStackTrace();
         }
     }
 
-    private static void runMenu(UDPSocketManager socketManager, PostHandler postHandler, DMHandler dmHandler) {
+    private static void runMenu(UDPSocketManager socketManager, PostHandler postHandler, DMHandler dmHandler,
+            FileHandler fileHandler) {
         while (true) {
             printMenu();
-            String input = scanner.nextLine();
+            String input = ConsoleInput.readLine("");
             System.out.println("[DEBUG] User selected menu option: " + input);
 
             switch (input) {
                 case "1":
                     try {
-                        System.out.print("Enter message to broadcast: ");
-                        String content = scanner.nextLine();
+                        String content = ConsoleInput.readLine("Enter message to broadcast: ");
                         System.out.println("[DEBUG] Broadcasting POST with content: " + content);
                         postHandler.broadcast(content);
                     } catch (Exception e) {
@@ -55,19 +79,18 @@ public class Main {
                     break;
                 case "2":
                     try {
-                        System.out.print("Enter message to DM: ");
-                        String content = scanner.nextLine();
+                        String content = ConsoleInput.readLine("Enter message to DM: ");
 
-                        System.out.print("Enter recipient ID: ");
-                        String recipientId = scanner.nextLine();
+                        String recipientId = ConsoleInput.readLine("Enter recipient ID: ");
 
-                        System.out.print("Enter recipient IP address: ");
-                        String ip = scanner.nextLine();
+                        String ip = ConsoleInput.readLine("Enter recipient IP address: ");
                         InetAddress recipientAddress = InetAddress.getByName(ip);
+
+                        int recipientPort = Integer.parseInt(ConsoleInput.readLine("Enter recipient port: "));
 
                         System.out.println(
                                 "[DEBUG] Sending DM to " + recipientId + " at " + ip + " with content: " + content);
-                        dmHandler.send(recipientId, content, recipientAddress);
+                        dmHandler.send(recipientId, content, recipientAddress, recipientPort);
                     } catch (Exception e) {
                         System.err.println("Error sending DM: " + e.getMessage());
                         e.printStackTrace();
@@ -86,7 +109,33 @@ public class Main {
                     System.out.println("[DEBUG] Option 6 selected - Send Group Message (not implemented yet)");
                     break;
                 case "7":
-                    System.out.println("[DEBUG] Option 7 selected - File Transfer (not implemented yet)");
+                    try {
+                        String filePath = ConsoleInput.readLine("Enter path to file: ").trim();
+
+                        String recipientId = ConsoleInput.readLine("Enter recipient ID: ").trim();
+
+                        String ip = ConsoleInput.readLine("Enter recipient IP address: ").trim();
+                        InetAddress recipientAddress = InetAddress.getByName(ip);
+
+                        int recipientPort = Integer.parseInt(ConsoleInput.readLine("Enter recipient port: "));
+
+                        System.out.println("[DEBUG] Initiating file transfer to " + recipientId + " at " + ip
+                                + " for file " + filePath);
+                        fileHandler.sendFile(recipientId, filePath, "File transfer", recipientAddress, recipientPort);
+                    } catch (Exception e) {
+                        System.err.println("Error sending file: " + e.getMessage());
+                        e.printStackTrace();
+                    }
+                    break;
+
+                case "8":
+                    System.out.println("[DEBUG] Option 8 selected - Tic Tac Toe (not implemented yet)");
+                    break;
+                case "9":
+                    System.out.println("[DEBUG] Option 9 selected - View a Profile (not implemented yet)");
+                    break;
+                case "10":
+                    System.out.println("[DEBUG] Option 10 selected - Follow / Unfollow User (not implemented yet)");
                     break;
                 case "11":
                     verbose = !verbose;
@@ -121,7 +170,8 @@ public class Main {
         System.out.print("Select option: ");
     }
 
-    private static void startListener(UDPSocketManager socketManager, PostHandler postHandler, DMHandler dmHandler) {
+    private static void startListener(UDPSocketManager socketManager, PostHandler postHandler, DMHandler dmHandler,
+            FileHandler fileHandler) {
         try {
             System.out.println("[DEBUG] Listener started, waiting for messages...");
             while (true) {
@@ -145,14 +195,24 @@ public class Main {
                 }
 
                 String userId = parsed.get("USER_ID");
+                if (userId == null) {
+                    userId = parsed.get("FROM");
+                }
                 System.out.println("[DEBUG] USER_ID field = " + userId);
 
-                if (!IPLogger.verifyIP(userId, senderIP.getHostAddress())) {
+                String type = parsed.get("TYPE");
+                if ("ACK".equals(type)) {
+                    // Skip IP verification for ACK messages
+                } else if (!IPLogger.verifyIP(userId, senderIP.getHostAddress())) {
                     VerboseLogger.drop("IP mismatch for user " + userId + " from " + senderIP.getHostAddress());
                     continue;
                 }
+                // temporarily disables ping during file transfer test
+                if ("PING".equals(type)) {
+                    continue; // skip PING messages completely
+                }
+                // temporarily disables ping during file transfer test
 
-                String type = parsed.get("TYPE");
                 String expectedScope = getExpectedTokenScope(type);
 
                 if (expectedScope != null) {
@@ -170,6 +230,13 @@ public class Main {
                         break;
                     case "DM":
                         dmHandler.handle(parsed);
+                        break;
+                    case "FILE_OFFER", "FILE_CHUNK", "FILE_RECEIVED":
+                        fileHandler.handle(parsed, senderIP.getHostAddress());
+                        break;
+                    case "ACK":
+                        fileHandler.handleAck(parsed);
+                        dmHandler.handleAck(parsed); // For now, just logs
                         break;
                     default:
                         VerboseLogger.log("Unhandled TYPE: " + type);

@@ -28,4 +28,10 @@ public class TerminalDisplay {
             System.out.println("----------------");
         }
     }
+
+    public static void displayFileOffer(String sender, String filename) {
+        System.out.println("\n=== FILE OFFER ===");
+        System.out.println("\nUser " + sender + " is sending you a file: " + filename + ". Do you accept?");
+        System.out.println("----------------");
+    }
 }
