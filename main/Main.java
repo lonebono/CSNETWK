@@ -5,6 +5,7 @@ import java.util.*;
 import main.handlers.*;
 import main.utils.ConsoleInput;
 import main.utils.IPLogger;
+import main.utils.InputManager;
 import main.utils.MessageParser;
 import main.utils.TokenValidator;
 import main.utils.VerboseLogger;
@@ -16,6 +17,7 @@ public class Main {
     private static String currentUser;
 
     public static void main(String[] args) {
+        Scanner scanner = new Scanner(System.in);
         try {
             if (args.length > 0) {
                 try {
@@ -29,7 +31,7 @@ public class Main {
             socketManager = new UDPSocketManager(PORT);
             InetAddress localIP = InetAddress.getLocalHost();
             System.out.println("Local IP: " + localIP.getHostAddress());
-            currentUser = ConsoleInput.readLine("Enter your username: ").trim();
+            currentUser = ConsoleInput.readLine(scanner, "Enter your username: ").trim();
             System.out.println("[DEBUG] Current user set to: " + currentUser);
 
             PostHandler postHandler = new PostHandler(socketManager, currentUser);
@@ -52,24 +54,46 @@ public class Main {
 
             System.out.println("[DEBUG] Starting listener thread...");
             new Thread(() -> startListener(socketManager, postHandler, dmHandler, fileHandler)).start();
-            runMenu(socketManager, postHandler, dmHandler, fileHandler);
+
+            runMenu(scanner, socketManager, postHandler, dmHandler, fileHandler);
         } catch (Exception e) {
             System.err.println("LSNP Error: " + e.getMessage());
             e.printStackTrace();
         }
     }
 
-    private static void runMenu(UDPSocketManager socketManager, PostHandler postHandler, DMHandler dmHandler,
+    private static void runMenu(Scanner scanner, UDPSocketManager socketManager, PostHandler postHandler,
+            DMHandler dmHandler,
             FileHandler fileHandler) {
         while (true) {
+            InputManager.InputRequest req = InputManager.getRequestQueue().poll();
+            if (req != null) {
+                // There's a prompt waiting for input, handle it first
+                System.out.print(req.prompt);
+                String response = scanner.nextLine();
+                try {
+                    req.responseQueue.put(response);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    System.err.println("Input request interrupted.");
+                    break;
+                }
+                continue; // Skip the menu for this loop iteration
+            }
+
+            // If there are still prompts waiting, do NOT show the menu or read input
+            if (!InputManager.getRequestQueue().isEmpty()) {
+                continue;
+            }
+
             printMenu();
-            String input = ConsoleInput.readLine("");
+            String input = scanner.nextLine();
             System.out.println("[DEBUG] User selected menu option: " + input);
 
             switch (input) {
                 case "1":
                     try {
-                        String content = ConsoleInput.readLine("Enter message to broadcast: ");
+                        String content = ConsoleInput.readLine(scanner, "Enter message to broadcast: ");
                         System.out.println("[DEBUG] Broadcasting POST with content: " + content);
                         postHandler.broadcast(content);
                     } catch (Exception e) {
@@ -79,15 +103,11 @@ public class Main {
                     break;
                 case "2":
                     try {
-                        String content = ConsoleInput.readLine("Enter message to DM: ");
-
-                        String recipientId = ConsoleInput.readLine("Enter recipient ID: ");
-
-                        String ip = ConsoleInput.readLine("Enter recipient IP address: ");
+                        String content = ConsoleInput.readLine(scanner, "Enter message to DM: ");
+                        String recipientId = ConsoleInput.readLine(scanner, "Enter recipient ID: ");
+                        String ip = ConsoleInput.readLine(scanner, "Enter recipient IP address: ");
                         InetAddress recipientAddress = InetAddress.getByName(ip);
-
-                        int recipientPort = Integer.parseInt(ConsoleInput.readLine("Enter recipient port: "));
-
+                        int recipientPort = Integer.parseInt(ConsoleInput.readLine(scanner, "Enter recipient port: "));
                         System.out.println(
                                 "[DEBUG] Sending DM to " + recipientId + " at " + ip + " with content: " + content);
                         dmHandler.send(recipientId, content, recipientAddress, recipientPort);
@@ -110,15 +130,11 @@ public class Main {
                     break;
                 case "7":
                     try {
-                        String filePath = ConsoleInput.readLine("Enter path to file: ").trim();
-
-                        String recipientId = ConsoleInput.readLine("Enter recipient ID: ").trim();
-
-                        String ip = ConsoleInput.readLine("Enter recipient IP address: ").trim();
+                        String filePath = ConsoleInput.readLine(scanner, "Enter path to file: ").trim();
+                        String recipientId = ConsoleInput.readLine(scanner, "Enter recipient ID: ").trim();
+                        String ip = ConsoleInput.readLine(scanner, "Enter recipient IP address: ").trim();
                         InetAddress recipientAddress = InetAddress.getByName(ip);
-
-                        int recipientPort = Integer.parseInt(ConsoleInput.readLine("Enter recipient port: "));
-
+                        int recipientPort = Integer.parseInt(ConsoleInput.readLine(scanner, "Enter recipient port: "));
                         System.out.println("[DEBUG] Initiating file transfer to " + recipientId + " at " + ip
                                 + " for file " + filePath);
                         fileHandler.sendFile(recipientId, filePath, "File transfer", recipientAddress, recipientPort);

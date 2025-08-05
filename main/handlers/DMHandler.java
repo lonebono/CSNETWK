@@ -90,7 +90,8 @@ public class DMHandler {
 
         if ("RECEIVED".equalsIgnoreCase(status)) {
             VerboseLogger.log("ACK received for DM with ID: " + messageId);
-            // TODO: Mark message as acknowledged if retry logic is added
+        } else {
+            VerboseLogger.log("ACK received with status '" + status + "' for DM with ID: " + messageId);
         }
     }
 }

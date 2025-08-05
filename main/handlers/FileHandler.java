@@ -5,10 +5,12 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.nio.file.Files;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import main.UDPSocketManager;
 import main.data.FileChunkStore;
-import main.utils.ConsoleInput;
+import main.utils.ChunkMetadata;
 import main.utils.FileChunker;
+import main.utils.InputManager;
 import main.utils.TerminalDisplay;
 import main.utils.VerboseLogger;
 
@@ -17,10 +19,14 @@ public class FileHandler {
     private final String currentUserId;
     private final FileChunkStore chunkStore = new FileChunkStore();
     private final Scanner scanner = new Scanner(System.in);
+    private final Map<String, ChunkMetadata> sentChunks = new ConcurrentHashMap<>();
+    private static final int RESEND_TIMEOUT_MS = 3000;
+    private static final int MAX_RETRIES = 5;
 
     public FileHandler(UDPSocketManager socketManager, String currentUserId) {
         this.socketManager = socketManager;
         this.currentUserId = currentUserId;
+        startResendMonitor();
     }
 
     public void handle(Map<String, String> msg, String senderIP) {
@@ -43,16 +49,23 @@ public class FileHandler {
 
         TerminalDisplay.displayFileOffer(from, filename);
 
-        String response = ConsoleInput.readLine("Accept file? (y/n): ").trim().toLowerCase();
-        while (!response.equals("y") && !response.equals("n")) {
-            response = ConsoleInput.readLine("Please enter 'y' or 'n': ").trim().toLowerCase();
-        }
-        if (!response.equals("y")) {
+        String response = "";
+        do {
+            response = InputManager.requestInput("Accept file? (y/n): ").trim().toLowerCase();
+            if (!response.equals("y") && !response.equals("n")) {
+                System.out.println("Invalid input. Please enter 'y' or 'n'.");
+            }
+        } while (!response.equals("y") && !response.equals("n"));
+
+        if (response.equals("y")) {
+            VerboseLogger.log("File offer accepted for fileId " + fileId);
+            // Proceed with accepting the file offer
+        } else {
+            System.out.println("File offer declined.");
             VerboseLogger.log("File offer from " + from + " for fileId " + fileId + " declined.");
+            // Handle decline logic (ignore future chunks, etc)
             return;
         }
-
-        VerboseLogger.log("File offer accepted for fileId " + fileId);
     }
 
     private void handleFileChunk(Map<String, String> msg, String senderIP) {
@@ -68,7 +81,7 @@ public class FileHandler {
             if (fullFile != null) {
                 System.out.println("[INFO] File transfer of " + fileId + " is complete.");
                 int toPort = socketManager.getLastSenderPort();
-                sendFileReceived(msg.get("TO"), msg.get("FROM"), fileId, toPort);
+                sendFileReceived(msg.get("TO"), msg.get("FROM"), fileId, toPort, senderIP);
                 chunkStore.removeFile(fileId);
             }
         }
@@ -126,6 +139,9 @@ public class FileHandler {
             sb.append("TOTAL_CHUNKS: ").append(totalChunks).append("\n");
             sb.append("CHUNK_SIZE: ").append(chunkSize).append("\n");
             String messageId = UUID.randomUUID().toString().replace("-", "").substring(0, 16);
+            ChunkMetadata meta = new ChunkMetadata(fileId, chunkIndex, messageId, base64Data, totalChunks, chunkSize,
+                    toAddress, toPort, toUserId);
+            sentChunks.put(messageId, meta);
             sb.append("MESSAGE_ID: ").append(messageId).append("\n");
             sb.append("TOKEN: ").append(currentUserId).append("|").append(System.currentTimeMillis() / 1000 + 3600)
                     .append("|file\n");
@@ -140,7 +156,7 @@ public class FileHandler {
         }
     }
 
-    public void sendFileReceived(String toUserId, String fromUserId, String fileId, int toPort) {
+    public void sendFileReceived(String toUserId, String fromUserId, String fileId, int toPort, String senderIP) {
         try {
             StringBuilder sb = new StringBuilder();
             String messageId = UUID.randomUUID().toString().replace("-", "").substring(0, 16);
@@ -154,7 +170,7 @@ public class FileHandler {
             sb.append("TIMESTAMP: ").append(System.currentTimeMillis() / 1000).append("\n");
             sb.append("\n");
 
-            InetAddress toAddress = InetAddress.getByName(fromUserId.split("@")[1]);
+            InetAddress toAddress = InetAddress.getByName(senderIP);
             socketManager.sendMessage(sb.toString(), toAddress, toPort);
             VerboseLogger.log("Sent FILE_RECEIVED COMPLETE for fileId " + fileId);
         } catch (Exception e) {
@@ -211,8 +227,67 @@ public class FileHandler {
         String status = msg.get("STATUS");
 
         if ("RECEIVED".equalsIgnoreCase(status)) {
-            VerboseLogger.log("ACK received for file message ID: " + messageId);
-            // TODO: Update your chunk resend logic or mark chunk as acknowledged
+            ChunkMetadata meta = sentChunks.get(messageId);
+            if (meta != null) {
+                meta.acknowledged = true;
+                VerboseLogger.log("ACK received: fileId=" + meta.fileId + ", chunk=" + meta.chunkIndex);
+            } else {
+                VerboseLogger.log("ACK received with status '" + status
+                        + "' but no chunk metadata found for message ID: " + messageId);
+            }
         }
+    }
+
+    private void startResendMonitor() {
+        Thread resendThread = new Thread(() -> {
+            while (true) {
+                long now = System.currentTimeMillis();
+
+                for (ChunkMetadata meta : sentChunks.values()) {
+                    if (!meta.acknowledged && now - meta.lastSentTime >= RESEND_TIMEOUT_MS) {
+                        if (meta.retryCount >= MAX_RETRIES) {
+                            VerboseLogger.log(
+                                    "Max retries reached for chunk " + meta.chunkIndex + " of fileId " + meta.fileId);
+                            sentChunks.remove(meta.messageId);
+                            continue;
+                        }
+
+                        try {
+                            StringBuilder sb = new StringBuilder();
+                            sb.append("TYPE: FILE_CHUNK\n");
+                            sb.append("FROM: ").append(currentUserId).append("\n");
+                            sb.append("TO: ").append(meta.toUserId).append("\n");
+                            sb.append("FILEID: ").append(meta.fileId).append("\n");
+                            sb.append("CHUNK_INDEX: ").append(meta.chunkIndex).append("\n");
+                            sb.append("TOTAL_CHUNKS: ").append(meta.totalChunks).append("\n");
+                            sb.append("CHUNK_SIZE: ").append(meta.chunkSize).append("\n");
+                            sb.append("MESSAGE_ID: ").append(meta.messageId).append("\n");
+                            sb.append("TOKEN: ").append(currentUserId).append("|")
+                                    .append(System.currentTimeMillis() / 1000 + 3600).append("|file\n");
+                            sb.append("DATA: ").append(meta.base64Data).append("\n\n");
+
+                            socketManager.sendMessage(sb.toString(), meta.recipientAddress, meta.recipientPort);
+
+                            meta.retryCount++;
+                            meta.lastSentTime = now;
+
+                            VerboseLogger.log("Resent chunk " + meta.chunkIndex + " of fileId " + meta.fileId
+                                    + " (retry " + meta.retryCount + ")");
+                        } catch (Exception e) {
+                            VerboseLogger.log("Failed to resend chunk " + meta.chunkIndex + ": " + e.getMessage());
+                        }
+                    }
+                }
+                try {
+                    Thread.sleep(500); // Check every 0.5 sec
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        });
+
+        resendThread.setDaemon(true);
+        resendThread.start();
     }
 }
