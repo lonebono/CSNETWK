@@ -39,6 +39,7 @@ public class Main {
             FileHandler fileHandler = new FileHandler(socketManager, currentUser);
             PingHandler pingHandler = new PingHandler(socketManager, currentUser);
             LikeHandler likeHandler = new LikeHandler(socketManager, currentUser);
+            RevokeHandler revokeHandler = new RevokeHandler(socketManager, currentUser);
 
             /*
              * new Thread(() -> {
@@ -54,9 +55,9 @@ public class Main {
              */
 
             System.out.println("[DEBUG] Starting listener thread...");
-            new Thread(() -> startListener(socketManager, postHandler, dmHandler, fileHandler, likeHandler)).start();
-
-            runMenu(scanner, socketManager, postHandler, dmHandler, fileHandler, likeHandler);
+            new Thread(() -> startListener(socketManager, postHandler, dmHandler, fileHandler, likeHandler, revokeHandler)).start();
+            
+            runMenu(scanner, socketManager, postHandler, dmHandler, fileHandler, likeHandler, revokeHandler);
         } catch (Exception e) {
             System.err.println("LSNP Error: " + e.getMessage());
             e.printStackTrace();
@@ -64,7 +65,7 @@ public class Main {
     }
 
     private static void runMenu(Scanner scanner, UDPSocketManager socketManager, PostHandler postHandler,
-            DMHandler dmHandler, FileHandler fileHandler, LikeHandler likeHandler) {
+            DMHandler dmHandler, FileHandler fileHandler, LikeHandler likeHandler, RevokeHandler revokeHandler) {
         while (true) {
             InputManager.InputRequest req = InputManager.getRequestQueue().poll();
             if (req != null) {
@@ -153,17 +154,27 @@ public class Main {
                         e.printStackTrace();
                     }
                     break;
-
                 case "9":
+                    try {
+                        String tokenToRevoke = ConsoleInput.readLine(scanner, "Enter the exact token string to revoke: ");
+                        System.out.println("[DEBUG] Revoking token: " + tokenToRevoke);
+                        revokeHandler.sendRevoke(tokenToRevoke);
+                    } catch (Exception e) {
+                        System.err.println("Error sending revoke request: " + e.getMessage());
+                        e.printStackTrace();
+                    }
+                    break;
+
+                case "10":
                     System.out.println("[DEBUG] Option 8 selected - Tic Tac Toe (not implemented yet)");
                     break;
-                case "10":
+                case "11":
                     System.out.println("[DEBUG] Option 9 selected - View a Profile (not implemented yet)");
                     break;
-                case "11":
+                case "12":
                     System.out.println("[DEBUG] Option 10 selected - Follow / Unfollow User (not implemented yet)");
                     break;
-                case "12":
+                case "13":
                     verbose = !verbose;
                     main.utils.VerboseLogger.setEnabled(verbose);
                     System.out.println("[DEBUG] Verbose mode toggled to: " + (verbose ? "ON" : "OFF"));
@@ -192,12 +203,13 @@ public class Main {
         System.out.println("9. View Profiles");
         System.out.println("10. Follow / Unfollow User");
         System.out.println("11. Toggle Verbose Mode");
+        System.out.println("12. Revoke Token");
         System.out.println("0. Exit");
         System.out.print("Select option: ");
     }
 
         private static void startListener(UDPSocketManager socketManager, PostHandler postHandler, DMHandler dmHandler,
-            FileHandler fileHandler, LikeHandler likeHandler) {
+            FileHandler fileHandler, LikeHandler likeHandler, RevokeHandler revokeHandler) {
         try {
             System.out.println("[DEBUG] Listener started, waiting for messages...");
             while (true) {
@@ -267,6 +279,9 @@ public class Main {
                         fileHandler.handleAck(parsed);
                         dmHandler.handleAck(parsed);
                         break;
+                    case "REVOKE":
+                        revokeHandler.handle(parsed, senderIP.getHostAddress());
+                        break;
                     default:
                         VerboseLogger.log("Unhandled TYPE: " + type);
                         break;
@@ -279,11 +294,11 @@ public class Main {
         }
     }
 
-        private static String getExpectedTokenScope(String type) {
+            private static String getExpectedTokenScope(String type) {
         if (type == null)
             return null;
         return switch (type) {
-            case "POST", "LIKE" -> "broadcast"; // 'LIKE' is already here
+            case "POST", "LIKE" -> "broadcast";
             case "DM" -> "chat";
             case "FILE_OFFER", "FILE_CHUNK" -> "file";
             case "TICTACTOE_INVITE", "TICTACTOE_MOVE", "TICTACTOE_RESULT" -> "game";
