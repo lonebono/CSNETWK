@@ -179,4 +179,48 @@ public class GroupHandler {
         }
     }
 
+    public void sendGroupUpdate(String groupId, List<String> addMembers, List<String> removeMembers) {
+        GroupStore.Group group = groupManager.getGroup(groupId);
+        if (group == null) {
+            System.err.println("Group " + groupId + " does not exist.");
+            return;
+        }
+
+        // Update local group membership first
+        boolean changed = groupManager.updateGroupMembers(groupId, addMembers, removeMembers);
+        if (!changed) {
+            System.out.println("No changes in group membership.");
+            return;
+        }
+
+        // Prepare GROUP_UPDATE message
+        Map<String, String> msg = new LinkedHashMap<>();
+        msg.put("TYPE", "GROUP_UPDATE");
+        msg.put("FROM", currentUserId);
+        msg.put("GROUP_ID", groupId);
+        if (addMembers != null && !addMembers.isEmpty())
+            msg.put("ADD", String.join(",", addMembers));
+        if (removeMembers != null && !removeMembers.isEmpty())
+            msg.put("REMOVE", String.join(",", removeMembers));
+        msg.put("TIMESTAMP", String.valueOf(System.currentTimeMillis() / 1000L));
+        msg.put("TOKEN", TokenValidator.generate(currentUserId, 3600_000, "group"));
+
+        String serialized = MessageParser.serialize(msg);
+
+        // Send to all current members (after update)
+        for (String member : group.getMembers()) {
+            if (member.equals(currentUserId))
+                continue; // skip self
+
+            try {
+                String userIp = member.split("@")[1];
+                InetAddress addr = InetAddress.getByName(userIp);
+                socketManager.sendMessage(serialized, addr, socketManager.getPort());
+            } catch (Exception e) {
+                VerboseLogger.log("Failed to send GROUP_UPDATE to " + member + ": " + e.getMessage());
+            }
+        }
+
+        System.out.println("Group update sent for " + group.getGroupName());
+    }
 }

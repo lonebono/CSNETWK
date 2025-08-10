@@ -126,38 +126,29 @@ public class Main {
                     }
                     break;
                 case "5":
+                    break;
+                case "6":
                     try {
-                        String groupId = ConsoleInput.readLine(scanner, "Enter Group ID: ").trim();
-                        String groupName = ConsoleInput.readLine(scanner, "Enter Group Name: ").trim();
-                        String membersLine = ConsoleInput.readLine(scanner, "Enter comma-separated member user IDs: ")
-                                .trim();
-                        List<String> members = Arrays.stream(membersLine.split(",")).map(String::trim)
-                                .filter(s -> !s.isEmpty()).toList();
+                        String groupId = ConsoleInput.readLine(scanner, "Enter Group ID to update: ").trim();
+                        String addMembersLine = ConsoleInput
+                                .readLine(scanner, "Enter comma-separated members to ADD (or leave blank): ").trim();
+                        String removeMembersLine = ConsoleInput
+                                .readLine(scanner, "Enter comma-separated members to REMOVE (or leave blank): ").trim();
 
-                        long timestamp = System.currentTimeMillis() / 1000L;
+                        List<String> addMembers = addMembersLine.isEmpty() ? Collections.emptyList()
+                                : Arrays.stream(addMembersLine.split(",")).map(String::trim).filter(s -> !s.isEmpty())
+                                        .toList();
+                        List<String> removeMembers = removeMembersLine.isEmpty() ? Collections.emptyList()
+                                : Arrays.stream(removeMembersLine.split(",")).map(String::trim)
+                                        .filter(s -> !s.isEmpty()).toList();
 
-                        // Create group message construction
-                        Map<String, String> createMsg = new LinkedHashMap<>();
-                        createMsg.put("TYPE", "GROUP_CREATE");
-                        createMsg.put("FROM", currentUser);
-                        createMsg.put("GROUP_ID", groupId);
-                        createMsg.put("GROUP_NAME", groupName);
-                        createMsg.put("MEMBERS", String.join(",", members));
-                        createMsg.put("TIMESTAMP", Long.toString(timestamp));
-                        createMsg.put("TOKEN", TokenValidator.generate(currentUser, 3600_000, "group"));
-
-                        String serialized = MessageParser.serialize(createMsg);
-
-                        InetAddress broadcastAddr = InetAddress.getByName("255.255.255.255");
-                        socketManager.sendMessage(serialized, broadcastAddr, PORT);
-
-                        VerboseLogger.log("Sent GROUP_CREATE for group " + groupName);
+                        groupHandler.sendGroupUpdate(groupId, addMembers, removeMembers);
                     } catch (Exception e) {
-                        System.err.println("Failed to send group create: " + e.getMessage());
+                        System.err.println("Error updating group: " + e.getMessage());
                         e.printStackTrace();
                     }
                     break;
-                case "6":
+                case "7":
                     try {
                         String groupId = ConsoleInput.readLine(scanner, "Enter Group ID to send message to: ").trim();
                         String content = ConsoleInput.readLine(scanner, "Enter message content: ").trim();
@@ -170,7 +161,7 @@ public class Main {
                         e.printStackTrace();
                     }
                     break;
-                case "7":
+                case "8":
                     try {
                         String filePath = ConsoleInput.readLine(scanner, "Enter path to file: ").trim();
                         String recipientId = ConsoleInput.readLine(scanner, "Enter recipient ID: ").trim();
@@ -186,16 +177,16 @@ public class Main {
                     }
                     break;
 
-                case "8":
+                case "9":
                     System.out.println("[DEBUG] Option 8 selected - Tic Tac Toe (not implemented yet)");
                     break;
-                case "9":
+                case "10":
                     System.out.println("[DEBUG] Option 9 selected - View a Profile (not implemented yet)");
                     break;
-                case "10":
+                case "11":
                     System.out.println("[DEBUG] Option 10 selected - Follow / Unfollow User (not implemented yet)");
                     break;
-                case "11":
+                case "12":
                     verbose = !verbose;
                     main.utils.VerboseLogger.setEnabled(verbose);
                     System.out.println("[DEBUG] Verbose mode toggled to: " + (verbose ? "ON" : "OFF"));
@@ -217,13 +208,14 @@ public class Main {
         System.out.println("2. Send DM");
         System.out.println("3. Like a Post");
         System.out.println("4. View Groups");
-        System.out.println("5. Create / Update Group");
-        System.out.println("6. Send Group Message");
-        System.out.println("7. File Transfer");
-        System.out.println("8. Play Tic Tac Toe");
-        System.out.println("9. View Profiles");
-        System.out.println("10. Follow / Unfollow User");
-        System.out.println("11. Toggle Verbose Mode");
+        System.out.println("5. Create Group");
+        System.out.println("6. Update Group");
+        System.out.println("7. Send Group Message");
+        System.out.println("8. File Transfer");
+        System.out.println("9. Play Tic Tac Toe");
+        System.out.println("10. View Profiles");
+        System.out.println("11. Follow / Unfollow User");
+        System.out.println("12. Toggle Verbose Mode");
         System.out.println("0. Exit");
         System.out.print("Select option: ");
     }
