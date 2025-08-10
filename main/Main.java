@@ -2,6 +2,7 @@ package main;
 
 import java.net.*;
 import java.util.*;
+import java.util.stream.Collectors;
 import main.data.GroupStore;
 import main.handlers.*;
 import main.utils.*;
@@ -126,6 +127,44 @@ public class Main {
                     }
                     break;
                 case "5":
+                    try {
+                        String groupId = ConsoleInput.readLine(scanner, "Enter new Group ID: ").trim();
+                        String groupName = ConsoleInput.readLine(scanner, "Enter Group Name: ").trim();
+                        String membersLine = ConsoleInput
+                                .readLine(scanner, "Enter comma-separated member user IDs (include yourself!): ")
+                                .trim();
+
+                        List<String> members = Arrays.stream(membersLine.split(","))
+                                .map(String::trim)
+                                .filter(s -> !s.isEmpty())
+                                .collect(Collectors.toList());
+
+                        // Add currentUser if not already in members
+                        if (!members.contains(currentUser)) {
+                            members.add(currentUser);
+                        }
+
+                        long timestamp = System.currentTimeMillis() / 1000L;
+
+                        Map<String, String> createMsg = new LinkedHashMap<>();
+                        createMsg.put("TYPE", "GROUP_CREATE");
+                        createMsg.put("FROM", currentUser);
+                        createMsg.put("GROUP_ID", groupId);
+                        createMsg.put("GROUP_NAME", groupName);
+                        createMsg.put("MEMBERS", String.join(",", members));
+                        createMsg.put("TIMESTAMP", Long.toString(timestamp));
+                        createMsg.put("TOKEN", TokenValidator.generate(currentUser, 3600, "group")); // 1 hour expiry
+
+                        String serialized = MessageParser.serialize(createMsg);
+
+                        InetAddress broadcastAddr = InetAddress.getByName("255.255.255.255");
+                        socketManager.sendMessage(serialized, broadcastAddr, PORT);
+
+                        VerboseLogger.log("Sent GROUP_CREATE for group " + groupName);
+                    } catch (Exception e) {
+                        System.err.println("Failed to send GROUP_CREATE: " + e.getMessage());
+                        e.printStackTrace();
+                    }
                     break;
                 case "6":
                     try {
