@@ -2,13 +2,9 @@ package main;
 
 import java.net.*;
 import java.util.*;
+import main.data.GroupStore;
 import main.handlers.*;
-import main.utils.ConsoleInput;
-import main.utils.IPLogger;
-import main.utils.InputManager;
-import main.utils.MessageParser;
-import main.utils.TokenValidator;
-import main.utils.VerboseLogger;
+import main.utils.*;
 
 public class Main {
     private static int PORT = 50999;
@@ -38,6 +34,9 @@ public class Main {
             DMHandler dmHandler = new DMHandler(socketManager, currentUser);
             FileHandler fileHandler = new FileHandler(socketManager, currentUser);
             PingHandler pingHandler = new PingHandler(socketManager, currentUser);
+            GroupStore groupStore = new GroupStore();
+            GroupManager groupManager = new GroupManager(groupStore);
+            GroupHandler groupHandler = new GroupHandler(socketManager, groupManager, currentUser);
 
             /*
              * new Thread(() -> {
@@ -53,9 +52,9 @@ public class Main {
              */
 
             System.out.println("[DEBUG] Starting listener thread...");
-            new Thread(() -> startListener(socketManager, postHandler, dmHandler, fileHandler)).start();
+            new Thread(() -> startListener(socketManager, postHandler, dmHandler, fileHandler, groupHandler)).start();
 
-            runMenu(scanner, socketManager, postHandler, dmHandler, fileHandler);
+            runMenu(scanner, socketManager, postHandler, dmHandler, fileHandler, groupHandler, groupStore);
         } catch (Exception e) {
             System.err.println("LSNP Error: " + e.getMessage());
             e.printStackTrace();
@@ -63,8 +62,7 @@ public class Main {
     }
 
     private static void runMenu(Scanner scanner, UDPSocketManager socketManager, PostHandler postHandler,
-            DMHandler dmHandler,
-            FileHandler fileHandler) {
+            DMHandler dmHandler, FileHandler fileHandler, GroupHandler groupHandler, GroupStore groupStore) {
         while (true) {
             InputManager.InputRequest req = InputManager.getRequestQueue().poll();
             if (req != null) {
@@ -120,13 +118,68 @@ public class Main {
                     System.out.println("[DEBUG] Option 3 selected - Like a Post (not implemented yet)");
                     break;
                 case "4":
-                    System.out.println("[DEBUG] Option 4 selected - View Groups (not implemented yet)");
+                    System.out.println("[DEBUG] Listing all groups:");
+                    for (String gid : groupStore.getAllGroupIds()) {
+                        GroupStore.Group g = groupStore.getGroup(gid);
+                        System.out.println(
+                                "Group ID: " + gid + ", Name: " + g.getGroupName() + ", Members: " + g.getMembers());
+                    }
                     break;
                 case "5":
-                    System.out.println("[DEBUG] Option 5 selected - Create / Update Group (not implemented yet)");
+                    try {
+                        String groupId = ConsoleInput.readLine(scanner, "Enter Group ID: ").trim();
+                        String groupName = ConsoleInput.readLine(scanner, "Enter Group Name: ").trim();
+                        String membersLine = ConsoleInput.readLine(scanner, "Enter comma-separated member user IDs: ")
+                                .trim();
+                        List<String> members = Arrays.stream(membersLine.split(",")).map(String::trim)
+                                .filter(s -> !s.isEmpty()).toList();
+
+                        long timestamp = System.currentTimeMillis() / 1000L;
+
+                        // Create group message construction
+                        Map<String, String> createMsg = new LinkedHashMap<>();
+                        createMsg.put("TYPE", "GROUP_CREATE");
+                        createMsg.put("FROM", currentUser);
+                        createMsg.put("GROUP_ID", groupId);
+                        createMsg.put("GROUP_NAME", groupName);
+                        createMsg.put("MEMBERS", String.join(",", members));
+                        createMsg.put("TIMESTAMP", Long.toString(timestamp));
+                        createMsg.put("TOKEN", TokenValidator.generate(currentUser, 3600_000, "group"));
+
+                        String serialized = MessageParser.serialize(createMsg);
+
+                        InetAddress broadcastAddr = InetAddress.getByName("255.255.255.255");
+                        socketManager.sendMessage(serialized, broadcastAddr, PORT);
+
+                        VerboseLogger.log("Sent GROUP_CREATE for group " + groupName);
+                    } catch (Exception e) {
+                        System.err.println("Failed to send group create: " + e.getMessage());
+                        e.printStackTrace();
+                    }
                     break;
                 case "6":
-                    System.out.println("[DEBUG] Option 6 selected - Send Group Message (not implemented yet)");
+                    try {
+                        String groupId = ConsoleInput.readLine(scanner, "Enter Group ID to send message to: ").trim();
+                        String content = ConsoleInput.readLine(scanner, "Enter message content: ").trim();
+
+                        Map<String, String> groupMsg = new LinkedHashMap<>();
+                        groupMsg.put("TYPE", "GROUP_MESSAGE");
+                        groupMsg.put("FROM", currentUser);
+                        groupMsg.put("GROUP_ID", groupId);
+                        groupMsg.put("CONTENT", content);
+                        groupMsg.put("TIMESTAMP", Long.toString(System.currentTimeMillis() / 1000L));
+                        groupMsg.put("TOKEN", TokenValidator.generate(currentUser, 3600_000, "group"));
+
+                        String serialized = MessageParser.serialize(groupMsg);
+
+                        InetAddress broadcastAddr = InetAddress.getByName("255.255.255.255");
+                        socketManager.sendMessage(serialized, broadcastAddr, PORT);
+
+                        VerboseLogger.log("Sent GROUP_MESSAGE to group " + groupId);
+                    } catch (Exception e) {
+                        System.err.println("Failed to send group message: " + e.getMessage());
+                        e.printStackTrace();
+                    }
                     break;
                 case "7":
                     try {
@@ -187,7 +240,7 @@ public class Main {
     }
 
     private static void startListener(UDPSocketManager socketManager, PostHandler postHandler, DMHandler dmHandler,
-            FileHandler fileHandler) {
+            FileHandler fileHandler, GroupHandler groupHandler) {
         try {
             System.out.println("[DEBUG] Listener started, waiting for messages...");
             while (true) {
@@ -246,6 +299,9 @@ public class Main {
                         break;
                     case "DM":
                         dmHandler.handle(parsed);
+                        break;
+                    case "GROUP_CREATE", "GROUP_UPDATE", "GROUP_MESSAGE":
+                        groupHandler.handle(parsed, senderIP.getHostAddress());
                         break;
                     case "FILE_OFFER", "FILE_CHUNK", "FILE_RECEIVED":
                         fileHandler.handle(parsed, senderIP.getHostAddress());
