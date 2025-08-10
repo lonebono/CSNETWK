@@ -2,6 +2,7 @@ package main.handlers;
 
 import java.util.*;
 import java.util.stream.Collectors;
+import java.net.InetAddress;
 import main.UDPSocketManager;
 import main.data.GroupStore;
 import main.utils.*;
@@ -20,7 +21,7 @@ public class GroupHandler {
     public void handle(Map<String, String> msg, String senderIP) {
         String type = msg.get("TYPE");
         if (type == null) {
-            VerboseLogger.log("GroupHandler: Missing TYPE field");
+            VerboseLogger.log("GroupHandler: Missing TYPE");
             return;
         }
 
@@ -28,7 +29,7 @@ public class GroupHandler {
             case "GROUP_CREATE" -> handleGroupCreate(msg, senderIP);
             case "GROUP_UPDATE" -> handleGroupUpdate(msg, senderIP);
             case "GROUP_MESSAGE" -> handleGroupMessage(msg, senderIP);
-            default -> VerboseLogger.log("GroupHandler: Unknown message type " + type);
+            default -> VerboseLogger.log("GroupHandler: Unknown type " + type);
         }
     }
 
@@ -43,19 +44,11 @@ public class GroupHandler {
         String groupName = msg.get("GROUP_NAME");
         String membersStr = msg.get("MEMBERS");
         String creatorUserId = msg.get("FROM");
-        long timestamp;
-        try {
-            timestamp = Long.parseLong(msg.get("TIMESTAMP"));
-        } catch (Exception e) {
-            VerboseLogger.log("Invalid or missing TIMESTAMP on GROUP_CREATE");
-            return;
-        }
+        long timestamp = parseTimestamp(msg.get("TIMESTAMP"));
 
-        List<String> members = membersStr == null ? new ArrayList<>()
-                : Arrays.stream(membersStr.split(","))
-                        .map(String::trim).filter(s -> !s.isEmpty()).collect(Collectors.toList());
+        List<String> members = parseMembers(membersStr);
 
-        // Add creator userId to members if not included
+        // Add creator to members if missing
         if (!members.contains(creatorUserId)) {
             members.add(creatorUserId);
         }
@@ -64,10 +57,10 @@ public class GroupHandler {
         if (created) {
             VerboseLogger.log("Group created: " + groupName + " (" + groupId + ")");
             if (members.contains(currentUserId)) {
-                System.out.println("You’ve been added to " + groupName);
+                TerminalDisplay.displayGroupCreate(groupName);
             }
         } else {
-            VerboseLogger.log("Group creation failed: group ID already exists: " + groupId);
+            VerboseLogger.log("Group creation failed: groupId exists " + groupId);
         }
     }
 
@@ -80,39 +73,29 @@ public class GroupHandler {
 
         String groupId = msg.get("GROUP_ID");
         String fromUser = msg.get("FROM");
-        long timestamp;
-        try {
-            timestamp = Long.parseLong(msg.get("TIMESTAMP"));
-        } catch (Exception e) {
-            VerboseLogger.log("Invalid or missing TIMESTAMP on GROUP_UPDATE");
-            return;
-        }
+        long timestamp = parseTimestamp(msg.get("TIMESTAMP"));
 
         GroupStore.Group group = groupManager.getGroup(groupId);
         if (group == null) {
-            VerboseLogger.log("GROUP_UPDATE received for non-existing group " + groupId);
+            VerboseLogger.log("GROUP_UPDATE for non-existing group " + groupId);
             return;
         }
 
         // Only creator or members allowed to update (example rule)
         if (!group.getCreatorUserId().equals(fromUser)) {
-            VerboseLogger.drop("User " + fromUser + " not authorized to update group " + groupId);
+            VerboseLogger.drop("User " + fromUser + " unauthorized to update group " + groupId);
             return;
         }
 
-        List<String> addList = parseUserList(msg.get("ADD"));
-        List<String> removeList = parseUserList(msg.get("REMOVE"));
+        List<String> addList = parseMembers(msg.get("ADD"));
+        List<String> removeList = parseMembers(msg.get("REMOVE"));
 
         boolean changed = groupManager.updateGroupMembers(groupId, addList, removeList);
         if (changed) {
-            VerboseLogger.log("Group \"" + group.getGroupName() + "\" member list was updated.");
-            if (group.isMember(currentUserId)) {
-                System.out.println("Group \"" + group.getGroupName() + "\" updated. You are still a member.");
-            } else {
-                System.out.println("You have been removed from group \"" + group.getGroupName() + "\".");
-            }
+            VerboseLogger.log("Group \"" + group.getGroupName() + "\" member list updated.");
+            TerminalDisplay.displayGroupUpdate(group.getGroupName(), group.isMember(currentUserId));
         } else {
-            VerboseLogger.log("Group update received but no membership changes made.");
+            VerboseLogger.log("Group update received but no changes.");
         }
     }
 
