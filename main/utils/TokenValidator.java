@@ -1,9 +1,9 @@
-    package main.utils;
+package main.utils;
 
-    import java.time.Instant;
-    import java.util.Map;
-    import java.util.Set;
-    import java.util.concurrent.ConcurrentHashMap;
+import java.time.Instant;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
     public class TokenValidator {
         private static final Set<String> revokedTokens = ConcurrentHashMap.newKeySet();
