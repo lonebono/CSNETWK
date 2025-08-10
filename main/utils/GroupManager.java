@@ -1,6 +1,8 @@
 package main.utils;
 
+import java.net.InetSocketAddress;
 import java.util.Collection;
+import java.util.Map;
 import main.data.GroupStore;
 
 public class GroupManager {
@@ -10,12 +12,16 @@ public class GroupManager {
         this.groupStore = groupStore;
     }
 
-    public boolean createGroup(String groupId, String groupName, Collection<String> members, String creatorUserId,
+    // Change members param to Map<String, InetSocketAddress>
+    public boolean createGroup(String groupId, String groupName, Map<String, InetSocketAddress> members,
+            String creatorUserId,
             long timestamp) {
         return groupStore.createGroup(groupId, groupName, members, creatorUserId, timestamp);
     }
 
-    public boolean updateGroupMembers(String groupId, Collection<String> addMembers, Collection<String> removeMembers) {
+    // Change addMembers param to Map<String, InetSocketAddress>
+    public boolean updateGroupMembers(String groupId, Map<String, InetSocketAddress> addMembers,
+            Collection<String> removeMembers) {
         return groupStore.updateGroupMembers(groupId, addMembers, removeMembers);
     }
 

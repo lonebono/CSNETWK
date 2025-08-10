@@ -43,23 +43,45 @@ public class GroupHandler {
         String groupName = msg.get("GROUP_NAME");
         String membersStr = msg.get("MEMBERS");
         String creatorUserId = msg.get("FROM");
-        long timestamp = parseTimestamp(msg.get("TIMESTAMP"));
+        long timestamp;
+        try {
+            timestamp = Long.parseLong(msg.get("TIMESTAMP"));
+        } catch (Exception e) {
+            VerboseLogger.log("Invalid or missing TIMESTAMP on GROUP_CREATE");
+            return;
+        }
 
-        List<String> members = parseMembers(membersStr);
+        List<String> members = new ArrayList<>();
+        if (membersStr != null && !membersStr.isEmpty()) {
+            for (String member : membersStr.split(",")) {
+                member = member.trim();
+                if (member.isEmpty())
+                    continue;
 
-        // Add creator to members if missing
+                // Append sender IP if missing '@'
+                if (!member.contains("@")) {
+                    member = member + "@" + senderIP;
+                }
+                members.add(member);
+            }
+        }
+
+        if (!creatorUserId.contains("@")) {
+            creatorUserId = creatorUserId + "@" + senderIP;
+        }
         if (!members.contains(creatorUserId)) {
             members.add(creatorUserId);
         }
 
         boolean created = groupManager.createGroup(groupId, groupName, members, creatorUserId, timestamp);
+        TerminalDisplay.displayGroupCreate(groupName);
         if (created) {
             VerboseLogger.log("Group created: " + groupName + " (" + groupId + ")");
             if (members.contains(currentUserId)) {
-                TerminalDisplay.displayGroupCreate(groupName);
+                System.out.println("You’ve been added to " + groupName);
             }
         } else {
-            VerboseLogger.log("Group creation failed: groupId exists " + groupId);
+            VerboseLogger.log("Group creation failed: group ID already exists: " + groupId);
         }
     }
 
@@ -90,6 +112,7 @@ public class GroupHandler {
         List<String> removeList = parseMembers(msg.get("REMOVE"));
 
         boolean changed = groupManager.updateGroupMembers(groupId, addList, removeList);
+        TerminalDisplay.displayGroupUpdate(groupId, changed);
         if (changed) {
             VerboseLogger.log("Group \"" + group.getGroupName() + "\" member list updated.");
             TerminalDisplay.displayGroupUpdate(group.getGroupName(), group.isMember(currentUserId));

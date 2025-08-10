@@ -130,19 +130,51 @@ public class Main {
                     try {
                         String groupId = ConsoleInput.readLine(scanner, "Enter new Group ID: ").trim();
                         String groupName = ConsoleInput.readLine(scanner, "Enter Group Name: ").trim();
-                        String membersLine = ConsoleInput
-                                .readLine(scanner, "Enter comma-separated member user IDs (include yourself!): ")
+                        String membersLine = ConsoleInput.readLine(scanner,
+                                "Enter members with ports (user@ip:port), comma-separated (include yourself!): ")
                                 .trim();
 
-                        List<String> members = Arrays.stream(membersLine.split(","))
-                                .map(String::trim)
-                                .filter(s -> !s.isEmpty())
-                                .collect(Collectors.toList());
+                        Map<String, InetSocketAddress> memberAddresses = new LinkedHashMap<>();
 
-                        // Add currentUser if not already in members
-                        if (!members.contains(currentUser)) {
-                            members.add(currentUser);
+                        String[] entries = membersLine.split(",");
+                        for (String entry : entries) {
+                            entry = entry.trim();
+                            if (entry.isEmpty())
+                                continue;
+
+                            int colonIndex = entry.lastIndexOf(':');
+                            if (colonIndex == -1) {
+                                System.out.println("Invalid member entry, missing port: " + entry);
+                                continue;
+                            }
+                            String userAtIp = entry.substring(0, colonIndex);
+                            String portStr = entry.substring(colonIndex + 1);
+                            int port = Integer.parseInt(portStr);
+
+                            int atIndex = userAtIp.indexOf('@');
+                            if (atIndex == -1) {
+                                System.out.println("Invalid member entry, missing '@': " + entry);
+                                continue;
+                            }
+
+                            String userId = userAtIp;
+                            String ipStr = userAtIp.substring(atIndex + 1);
+
+                            InetAddress ip = InetAddress.getByName(ipStr);
+                            InetSocketAddress socketAddr = new InetSocketAddress(ip, port);
+
+                            memberAddresses.put(userId, socketAddr);
                         }
+
+                        // Add current user if not included
+                        String selfUserId = currentUser + "@" + InetAddress.getLocalHost().getHostAddress();
+                        if (!memberAddresses.containsKey(selfUserId)) {
+                            InetSocketAddress selfAddr = new InetSocketAddress(InetAddress.getLocalHost(), PORT);
+                            memberAddresses.put(selfUserId, selfAddr);
+                        }
+
+                        // Store group locally
+                        groupStore.addGroup(groupId, groupName, memberAddresses);
 
                         long timestamp = System.currentTimeMillis() / 1000L;
 
@@ -151,14 +183,16 @@ public class Main {
                         createMsg.put("FROM", currentUser);
                         createMsg.put("GROUP_ID", groupId);
                         createMsg.put("GROUP_NAME", groupName);
-                        createMsg.put("MEMBERS", String.join(",", members));
+                        createMsg.put("MEMBERS", String.join(",", memberAddresses.keySet()));
                         createMsg.put("TIMESTAMP", Long.toString(timestamp));
                         createMsg.put("TOKEN", TokenValidator.generate(currentUser, 3600, "group")); // 1 hour expiry
 
                         String serialized = MessageParser.serialize(createMsg);
 
-                        InetAddress broadcastAddr = InetAddress.getByName("255.255.255.255");
-                        socketManager.sendMessage(serialized, broadcastAddr, PORT);
+                        // Send individually to each member's IP+port
+                        for (InetSocketAddress addr : memberAddresses.values()) {
+                            socketManager.sendMessage(serialized, addr.getAddress(), addr.getPort());
+                        }
 
                         VerboseLogger.log("Sent GROUP_CREATE for group " + groupName);
                     } catch (Exception e) {
