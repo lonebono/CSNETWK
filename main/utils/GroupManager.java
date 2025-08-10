@@ -97,7 +97,6 @@ public class GroupManager {
         }
 
         if (changed) {
-            // Update last update timestamp to provided timestamp (e.g. from message)
             group.updateTimestamp(timestamp);
         }
         return changed;
