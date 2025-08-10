@@ -1,8 +1,6 @@
 package main.handlers;
 
 import java.util.*;
-import java.util.stream.Collectors;
-import java.net.InetAddress;
 import main.UDPSocketManager;
 import main.data.GroupStore;
 import main.utils.*;
@@ -111,21 +109,35 @@ public class GroupHandler {
         String content = msg.get("CONTENT");
 
         if (!groupManager.isUserMember(groupId, fromUser)) {
-            VerboseLogger.drop("User " + fromUser + " is not member of group " + groupId + " - dropping GROUP_MESSAGE");
+            VerboseLogger.drop("User " + fromUser + " not a member of group " + groupId);
             return;
         }
 
-        System.out.println(fromUser + " sent to group \"" + groupId + "\": " + content);
+        TerminalDisplay.displayGroupMessage(fromUser, groupId, content);
         VerboseLogger.log("GROUP_MESSAGE from " + fromUser + " to group " + groupId + ": " + content);
     }
 
-    private List<String> parseUserList(String commaSeparated) {
-        if (commaSeparated == null || commaSeparated.trim().isEmpty()) {
-            return Collections.emptyList();
+    private List<String> parseMembers(String membersStr) {
+        if (membersStr == null || membersStr.isBlank()) {
+            return new ArrayList<>();
         }
-        return Arrays.stream(commaSeparated.split(","))
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .collect(Collectors.toList());
+        String[] parts = membersStr.split(",");
+        List<String> list = new ArrayList<>();
+        for (String s : parts) {
+            String trimmed = s.trim();
+            if (!trimmed.isEmpty()) {
+                list.add(trimmed);
+            }
+        }
+        return list;
+    }
+
+    private long parseTimestamp(String tsStr) {
+        try {
+            return Long.parseLong(tsStr);
+        } catch (Exception e) {
+            VerboseLogger.log("Invalid timestamp: " + tsStr);
+            return System.currentTimeMillis() / 1000L;
+        }
     }
 }
