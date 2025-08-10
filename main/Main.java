@@ -162,18 +162,7 @@ public class Main {
                         String groupId = ConsoleInput.readLine(scanner, "Enter Group ID to send message to: ").trim();
                         String content = ConsoleInput.readLine(scanner, "Enter message content: ").trim();
 
-                        Map<String, String> groupMsg = new LinkedHashMap<>();
-                        groupMsg.put("TYPE", "GROUP_MESSAGE");
-                        groupMsg.put("FROM", currentUser);
-                        groupMsg.put("GROUP_ID", groupId);
-                        groupMsg.put("CONTENT", content);
-                        groupMsg.put("TIMESTAMP", Long.toString(System.currentTimeMillis() / 1000L));
-                        groupMsg.put("TOKEN", TokenValidator.generate(currentUser, 3600_000, "group"));
-
-                        String serialized = MessageParser.serialize(groupMsg);
-
-                        InetAddress broadcastAddr = InetAddress.getByName("255.255.255.255");
-                        socketManager.sendMessage(serialized, broadcastAddr, PORT);
+                        groupHandler.sendGroupMessage(groupId, content); // Use this method
 
                         VerboseLogger.log("Sent GROUP_MESSAGE to group " + groupId);
                     } catch (Exception e) {

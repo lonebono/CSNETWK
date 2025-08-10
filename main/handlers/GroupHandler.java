@@ -1,5 +1,6 @@
 package main.handlers;
 
+import java.net.InetAddress;
 import java.util.*;
 import main.UDPSocketManager;
 import main.data.GroupStore;
@@ -140,4 +141,42 @@ public class GroupHandler {
             return System.currentTimeMillis() / 1000L;
         }
     }
+
+    public void sendGroupMessage(String groupId, String content) {
+        GroupStore.Group group = groupManager.getGroup(groupId);
+        if (group == null) {
+            System.err.println("Group " + groupId + " does not exist.");
+            return;
+        }
+
+        long timestamp = System.currentTimeMillis() / 1000;
+        String token = currentUserId + "|" + (timestamp + 3600) + "|group";
+
+        for (String member : group.getMembers()) {
+            // Skip sending to self (optional)
+            if (member.equals(currentUserId))
+                continue;
+
+            StringBuilder sb = new StringBuilder();
+            sb.append("TYPE: GROUP_MESSAGE\n");
+            sb.append("FROM: ").append(currentUserId).append("\n");
+            sb.append("GROUP_ID: ").append(groupId).append("\n");
+            sb.append("CONTENT: ").append(content).append("\n");
+            sb.append("TIMESTAMP: ").append(timestamp).append("\n");
+            sb.append("TOKEN: ").append(token).append("\n\n");
+
+            try {
+                // Extract IP from userId (expected format: username@ip)
+                String userIp = member.split("@")[1];
+                InetAddress addr = InetAddress.getByName(userIp);
+                int port = socketManager.getPort(); // Or your logic to get destination port
+
+                socketManager.sendMessage(sb.toString(), addr, port);
+                VerboseLogger.log("Sent GROUP_MESSAGE to " + member);
+            } catch (Exception e) {
+                VerboseLogger.log("Failed to send GROUP_MESSAGE to " + member + ": " + e.getMessage());
+            }
+        }
+    }
+
 }
