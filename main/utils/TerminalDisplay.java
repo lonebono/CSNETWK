@@ -41,15 +41,15 @@ public class TerminalDisplay {
         System.out.println("----------------");
     }
 
-    public static void displayGroupUpdate(String groupName) {
+    public static void displayGroupUpdate(String groupName, boolean stillMember) {
         System.out.println("\n=== GROUP UPDATE ===");
         System.out.println("The group \"" + groupName + "\" member list was updated.");
         System.out.println("----------------");
     }
 
-    public static void displayGroupMessage(String from, String content) {
+    public static void displayGroupMessage(String fromUser, String groupName, String content) {
         System.out.println("\n=== GROUP MESSAGE ===");
-        System.out.println(from + " sent \"" + content + "\"");
+        System.out.println(fromUser + " sent \"" + content + "\" to group \"" + groupName + "\"");
         System.out.println("----------------");
     }
 
