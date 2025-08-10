@@ -64,8 +64,7 @@ public class Main {
     }
 
     private static void runMenu(Scanner scanner, UDPSocketManager socketManager, PostHandler postHandler,
-            DMHandler dmHandler,
-            FileHandler fileHandler) {
+            DMHandler dmHandler, FileHandler fileHandler, LikeHandler likeHandler) {
         while (true) {
             InputManager.InputRequest req = InputManager.getRequestQueue().poll();
             if (req != null) {
