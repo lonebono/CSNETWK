@@ -1,21 +1,21 @@
 package main.handlers;
 
+import java.net.InetAddress;
+import java.util.*;
+import java.util.stream.Collectors;
+
 import main.UDPSocketManager;
+import main.data.GroupStore;
 import main.utils.*;
 
 public class GroupHandler {
-
     private final UDPSocketManager socketManager;
     private final GroupManager groupManager;
-    private final TokenValidator tokenValidator;
-    private final VerboseLogger verboseLogger;
 
-    public GroupHandler(UDPSocketManager socketManager, GroupManager groupManager, TokenValidator tokenValidator,
-            VerboseLogger verboseLogger) {
+    public GroupHandler(UDPSocketManager socketManager, GroupManager groupManager, String currentUserId) {
         this.socketManager = socketManager;
         this.groupManager = groupManager;
-        this.tokenValidator = tokenValidator;
-        this.verboseLogger = verboseLogger;
+        this.currentUserId = currentUserId;
     }
 
 }

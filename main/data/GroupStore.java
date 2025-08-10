@@ -4,22 +4,24 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class GroupStore {
-    private final Map<String, Group> groups = new ConcurrentHashMap<>();
-
     public static class Group {
         private final String groupId;
         private String groupName;
         private final Set<String> members = ConcurrentHashMap.newKeySet();
-        private long creationTimestamp;
-        private long lastUpdateTimestamp;
         private final String creatorUserId;
+        private final long creationTimestamp;
+        private long lastUpdateTimestamp;
 
-        public Group(String groupId, String groupName, long creationTimestamp, String creatorUserId) {
+        public Group(String groupId, String groupName, Collection<String> initialMembers, String creatorUserId,
+                long creationTimestamp) {
             this.groupId = groupId;
             this.groupName = groupName;
+            this.creatorUserId = creatorUserId;
             this.creationTimestamp = creationTimestamp;
             this.lastUpdateTimestamp = creationTimestamp;
-            this.creatorUserId = creatorUserId;
+            if (initialMembers != null) {
+                this.members.addAll(initialMembers);
+            }
         }
 
         public String getGroupId() {
@@ -38,6 +40,28 @@ public class GroupStore {
             return Collections.unmodifiableSet(members);
         }
 
+        public boolean addMember(String userId) {
+            boolean added = members.add(userId);
+            if (added)
+                lastUpdateTimestamp = System.currentTimeMillis() / 1000L;
+            return added;
+        }
+
+        public boolean removeMember(String userId) {
+            boolean removed = members.remove(userId);
+            if (removed)
+                lastUpdateTimestamp = System.currentTimeMillis() / 1000L;
+            return removed;
+        }
+
+        public boolean isMember(String userId) {
+            return members.contains(userId);
+        }
+
+        public String getCreatorUserId() {
+            return creatorUserId;
+        }
+
         public long getCreationTimestamp() {
             return creationTimestamp;
         }
@@ -45,34 +69,13 @@ public class GroupStore {
         public long getLastUpdateTimestamp() {
             return lastUpdateTimestamp;
         }
-
-        public String getCreatorUserId() {
-            return creatorUserId;
-        }
-
-        public void addMember(String userId) {
-            members.add(userId);
-            updateTimestamp(System.currentTimeMillis() / 1000L);
-        }
-
-        public void removeMember(String userId) {
-            members.remove(userId);
-            updateTimestamp(System.currentTimeMillis() / 1000L);
-        }
-
-        private void updateTimestamp(long timestamp) {
-            lastUpdateTimestamp = timestamp;
-        }
     }
 
-    public boolean createGroup(String groupId, String groupName, Collection<String> members,
-            long creationTimestamp, String creatorUserId) {
-        Group group = new Group(groupId, groupName, creationTimestamp, creatorUserId);
-        if (members != null) {
-            for (String m : members) {
-                group.addMember(m);
-            }
-        }
+    private final Map<String, Group> groups = new ConcurrentHashMap<>();
+
+    public boolean createGroup(String groupId, String groupName, Collection<String> members, String creatorUserId,
+            long timestamp) {
+        Group group = new Group(groupId, groupName, members, creatorUserId, timestamp);
         return groups.putIfAbsent(groupId, group) == null;
     }
 
@@ -83,19 +86,13 @@ public class GroupStore {
 
         boolean changed = false;
         if (addMembers != null) {
-            for (String m : addMembers) {
-                if (!group.getMembers().contains(m)) {
-                    group.addMember(m);
-                    changed = true;
-                }
+            for (String u : addMembers) {
+                changed |= group.addMember(u);
             }
         }
         if (removeMembers != null) {
-            for (String m : removeMembers) {
-                if (group.getMembers().contains(m)) {
-                    group.removeMember(m);
-                    changed = true;
-                }
+            for (String u : removeMembers) {
+                changed |= group.removeMember(u);
             }
         }
         return changed;
@@ -105,28 +102,16 @@ public class GroupStore {
         return groups.get(groupId);
     }
 
-    public boolean isMember(String groupId, String userId) {
+    public boolean isUserMember(String groupId, String userId) {
         Group g = groups.get(groupId);
-        return g != null && g.getMembers().contains(userId);
-    }
-
-    public boolean groupExists(String groupId) {
-        return groups.containsKey(groupId);
-    }
-
-    public Set<String> getAllGroupIds() {
-        return Collections.unmodifiableSet(groups.keySet());
-    }
-
-    public Set<String> getMembers(String groupId) {
-        Group g = groups.get(groupId);
-        if (g == null)
-            return Collections.emptySet();
-        return g.getMembers();
+        return g != null && g.isMember(userId);
     }
 
     public boolean deleteGroup(String groupId) {
         return groups.remove(groupId) != null;
     }
 
+    public Set<String> getAllGroupIds() {
+        return Collections.unmodifiableSet(groups.keySet());
+    }
 }
