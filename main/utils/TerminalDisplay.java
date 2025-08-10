@@ -34,4 +34,10 @@ public class TerminalDisplay {
         System.out.println("\nUser " + sender + " is sending you a file: " + filename + ". Do you accept?");
         System.out.println("----------------");
     }
+        public static void displayLikeNotification(String liker, String likedMessageId) {
+        System.out.println("\n=== NEW LIKE ===");
+        System.out.println(liker + " liked post with ID: " + likedMessageId);
+        System.out.println("=================");
+    }
+    
 }
