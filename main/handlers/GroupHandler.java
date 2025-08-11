@@ -155,7 +155,7 @@ public class GroupHandler {
                 int port = Integer.parseInt(ipPort[1]);
 
                 InetSocketAddress addr = new InetSocketAddress(ip, port);
-                membersMap.put(userId, addr);
+                membersMap.put(member, addr);
             } catch (Exception e) {
                 VerboseLogger.log("Failed to parse member: " + member + " - " + e.getMessage());
             }

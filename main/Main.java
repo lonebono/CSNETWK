@@ -2,7 +2,6 @@ package main;
 
 import java.net.*;
 import java.util.*;
-import java.util.stream.Collectors;
 import main.data.GroupStore;
 import main.handlers.*;
 import main.utils.*;
@@ -152,7 +151,6 @@ public class Main {
                             String userAtIp = entry.substring(0, colonIndex);
                             String portStr = entry.substring(colonIndex + 1);
                             int port = Integer.parseInt(portStr);
-
                             int atIndex = userAtIp.indexOf('@');
                             if (atIndex == -1) {
                                 System.out.println("Invalid member entry, missing '@': " + entry);
@@ -161,24 +159,18 @@ public class Main {
 
                             String userId = userAtIp + ":" + port;
                             String ipStr = userAtIp.substring(atIndex + 1);
-
                             InetAddress ip = InetAddress.getByName(ipStr);
                             InetSocketAddress socketAddr = new InetSocketAddress(ip, port);
-
                             memberAddresses.put(userId, socketAddr);
                         }
-
-                        // Add current user if not included
                         String selfUserId = currentUser + "@" + InetAddress.getLocalHost().getHostAddress();
                         if (!memberAddresses.containsKey(selfUserId)) {
                             InetSocketAddress selfAddr = new InetSocketAddress(InetAddress.getLocalHost(), PORT);
                             memberAddresses.put(selfUserId, selfAddr);
                         }
 
-                        // Store group locally
-                        groupManager.createGroup(groupId, groupName, memberAddresses, currentUserId, timestamp);
-
                         long timestamp = System.currentTimeMillis() / 1000L;
+                        groupManager.createGroup(groupId, groupName, memberAddresses, currentUser, timestamp);
 
                         Map<String, String> createMsg = new LinkedHashMap<>();
                         createMsg.put("TYPE", "GROUP_CREATE");
