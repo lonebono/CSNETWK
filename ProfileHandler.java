@@ -39,7 +39,7 @@ public class ProfileHandler {
         String localIp = getLocalIp();
 
         Map<String, String> profileMsg = new LinkedHashMap<>();
-        profileMsg.put("STATUS", "I love matcha");
+        profileMsg.put("STATUS", status);
         profileMsg.put("USER_ID", username + "@" + localIp);
         profileMsg.put("TYPE", "PROFILE");
         profileMsg.put("DISPLAY_NAME", username);
@@ -74,7 +74,6 @@ public class ProfileHandler {
 
         String dispName = parsed.getOrDefault("DISPLAY_NAME", userId);
         String userStatus = parsed.getOrDefault("STATUS", "");
-        System.out.println("[PROFILE] " + dispName + " - " + userStatus);
     }
 
     public Map<String, Map<String, String>> getKnownProfiles() {
