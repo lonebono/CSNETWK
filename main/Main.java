@@ -55,7 +55,8 @@ public class Main {
             System.out.println("[DEBUG] Starting listener thread...");
             new Thread(() -> startListener(socketManager, postHandler, dmHandler, fileHandler, groupHandler)).start();
 
-            runMenu(scanner, socketManager, postHandler, dmHandler, fileHandler, groupHandler, groupStore);
+            runMenu(scanner, socketManager, postHandler, dmHandler, fileHandler, groupHandler, groupManager,
+                    groupStore);
         } catch (Exception e) {
             System.err.println("LSNP Error: " + e.getMessage());
             e.printStackTrace();
@@ -63,7 +64,8 @@ public class Main {
     }
 
     private static void runMenu(Scanner scanner, UDPSocketManager socketManager, PostHandler postHandler,
-            DMHandler dmHandler, FileHandler fileHandler, GroupHandler groupHandler, GroupStore groupStore) {
+            DMHandler dmHandler, FileHandler fileHandler, GroupHandler groupHandler, GroupManager groupManager,
+            GroupStore groupStore) {
         while (true) {
             InputManager.InputRequest req = InputManager.getRequestQueue().poll();
             if (req != null) {
@@ -157,7 +159,7 @@ public class Main {
                                 continue;
                             }
 
-                            String userId = userAtIp;
+                            String userId = userAtIp + ":" + port;
                             String ipStr = userAtIp.substring(atIndex + 1);
 
                             InetAddress ip = InetAddress.getByName(ipStr);
@@ -174,7 +176,7 @@ public class Main {
                         }
 
                         // Store group locally
-                        groupStore.addGroup(groupId, groupName, memberAddresses);
+                        groupManager.createGroup(groupId, groupName, memberAddresses, currentUserId, timestamp);
 
                         long timestamp = System.currentTimeMillis() / 1000L;
 
@@ -215,7 +217,39 @@ public class Main {
                                 : Arrays.stream(removeMembersLine.split(",")).map(String::trim)
                                         .filter(s -> !s.isEmpty()).toList();
 
-                        groupHandler.sendGroupUpdate(groupId, addMembers, removeMembers);
+                        Map<String, InetSocketAddress> addMembersMap = new LinkedHashMap<>();
+                        if (!addMembersLine.isEmpty()) {
+                            String[] entries = addMembersLine.split(",");
+                            for (String entry : entries) {
+                                entry = entry.trim();
+                                if (entry.isEmpty())
+                                    continue;
+
+                                int colonIndex = entry.lastIndexOf(':');
+                                if (colonIndex == -1) {
+                                    System.out.println("Invalid member entry, missing port: " + entry);
+                                    continue;
+                                }
+                                String userAtIp = entry.substring(0, colonIndex);
+                                String portStr = entry.substring(colonIndex + 1);
+                                int port = Integer.parseInt(portStr);
+
+                                int atIndex = userAtIp.indexOf('@');
+                                if (atIndex == -1) {
+                                    System.out.println("Invalid member entry, missing '@': " + entry);
+                                    continue;
+                                }
+
+                                String userId = userAtIp + ":" + port; // Keep consistent user@ip:port format
+
+                                InetAddress ip = InetAddress.getByName(userAtIp.substring(atIndex + 1));
+                                InetSocketAddress socketAddr = new InetSocketAddress(ip, port);
+
+                                addMembersMap.put(userId, socketAddr);
+                            }
+                        }
+
+                        groupHandler.sendGroupUpdate(groupId, addMembersMap, removeMembers);
                     } catch (Exception e) {
                         System.err.println("Error updating group: " + e.getMessage());
                         e.printStackTrace();
