@@ -1,6 +1,5 @@
 package main.handlers;
 
-import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.util.*;
 import main.UDPSocketManager;
@@ -99,13 +98,13 @@ public class GroupHandler {
             return;
         }
 
-        List<String> addList = parseMembers(msg.get("ADD"));
-        List<String> removeList = parseMembers(msg.get("REMOVE"));
+        Map<String, InetSocketAddress> addMembers = parseMembersWithPorts(msg.get("ADD"));
+        Collection<String> removeMembers = parseRemoveMembers(msg.get("REMOVE"));
 
-        boolean changed = groupManager.updateGroupMembers(groupId, addList, removeList);
+        boolean changed = groupManager.updateGroupMembers(groupId, addMembers, removeMembers);
         if (changed) {
             VerboseLogger.log("Group \"" + group.getGroupName() + "\" member list updated.");
-            TerminalDisplay.displayGroupUpdate(group.getGroupName(), group.isMember(currentUserId));
+            TerminalDisplay.displayGroupUpdate(group.getGroupName(), group.isMember(currentUserId.split("@")[0]));
         } else {
             VerboseLogger.log("Group update received but no changes.");
         }
@@ -119,7 +118,7 @@ public class GroupHandler {
         }
 
         String groupId = msg.get("GROUP_ID");
-        String fromUser = msg.get("FROM");
+        String fromUser = msg.get("FROM").split("@")[0];
         String content = msg.get("CONTENT");
 
         if (!groupManager.isUserMember(groupId, fromUser)) {
@@ -131,17 +130,51 @@ public class GroupHandler {
         VerboseLogger.log("GROUP_MESSAGE from " + fromUser + " to group " + groupId + ": " + content);
     }
 
-    private List<String> parseMembers(String membersStr) {
-        if (membersStr == null || membersStr.isBlank()) {
-            return new ArrayList<>();
-        }
-        String[] parts = membersStr.split(",");
-        List<String> list = new ArrayList<>();
-        for (String s : parts) {
-            String trimmed = s.trim();
-            if (!trimmed.isEmpty()) {
-                list.add(trimmed);
+    private Map<String, InetSocketAddress> parseMembersWithPorts(String membersStr) {
+        Map<String, InetSocketAddress> membersMap = new LinkedHashMap<>();
+        if (membersStr == null || membersStr.isBlank())
+            return membersMap;
+
+        for (String member : membersStr.split(",")) {
+            member = member.trim();
+            if (member.isEmpty())
+                continue;
+
+            try {
+                // Expecting user@ip:port format
+                String[] userAndAddr = member.split("@");
+                if (userAndAddr.length != 2)
+                    continue;
+
+                String userId = userAndAddr[0];
+                String[] ipPort = userAndAddr[1].split(":");
+                if (ipPort.length != 2)
+                    continue;
+
+                String ip = ipPort[0];
+                int port = Integer.parseInt(ipPort[1]);
+
+                InetSocketAddress addr = new InetSocketAddress(ip, port);
+                membersMap.put(userId, addr);
+            } catch (Exception e) {
+                VerboseLogger.log("Failed to parse member: " + member + " - " + e.getMessage());
             }
+        }
+        return membersMap;
+    }
+
+    private Collection<String> parseRemoveMembers(String removeStr) {
+        if (removeStr == null || removeStr.isBlank())
+            return Collections.emptyList();
+
+        List<String> list = new ArrayList<>();
+        for (String member : removeStr.split(",")) {
+            member = member.trim();
+            if (member.isEmpty())
+                continue;
+            // Remove only userId part (before '@')
+            String userId = member.contains("@") ? member.split("@")[0] : member;
+            list.add(userId);
         }
         return list;
     }
@@ -165,12 +198,12 @@ public class GroupHandler {
         long timestamp = System.currentTimeMillis() / 1000;
         String token = TokenValidator.generate(currentUserId, 3600, "group");
 
-        Map<String, InetSocketAddress> membersWithPorts = group.getMembersWithPorts();
-        for (Map.Entry<String, InetSocketAddress> entry : membersWithPorts.entrySet()) {
+        Map<String, InetSocketAddress> members = group.getMembers();
+        for (Map.Entry<String, InetSocketAddress> entry : members.entrySet()) {
             String memberId = entry.getKey();
             InetSocketAddress addr = entry.getValue();
 
-            if (memberId.equals(currentUserId))
+            if (memberId.equals(currentUserId.split("@")[0]))
                 continue; // skip self
 
             StringBuilder sb = new StringBuilder();
@@ -190,7 +223,8 @@ public class GroupHandler {
         }
     }
 
-    public void sendGroupUpdate(String groupId, List<String> addMembers, List<String> removeMembers) {
+    public void sendGroupUpdate(String groupId, Map<String, InetSocketAddress> addMembers,
+            Collection<String> removeMembers) {
         GroupStore.Group group = groupManager.getGroup(groupId);
         if (group == null) {
             System.err.println("Group " + groupId + " does not exist.");
@@ -208,7 +242,7 @@ public class GroupHandler {
         msg.put("FROM", currentUserId);
         msg.put("GROUP_ID", groupId);
         if (addMembers != null && !addMembers.isEmpty())
-            msg.put("ADD", String.join(",", addMembers));
+            msg.put("ADD", String.join(",", formatMembers(addMembers)));
         if (removeMembers != null && !removeMembers.isEmpty())
             msg.put("REMOVE", String.join(",", removeMembers));
         msg.put("TIMESTAMP", String.valueOf(System.currentTimeMillis() / 1000L));
@@ -216,12 +250,12 @@ public class GroupHandler {
 
         String serialized = MessageParser.serialize(msg);
 
-        Map<String, InetSocketAddress> membersWithPorts = group.getMembersWithPorts();
-        for (Map.Entry<String, InetSocketAddress> entry : membersWithPorts.entrySet()) {
+        Map<String, InetSocketAddress> members = group.getMembers();
+        for (Map.Entry<String, InetSocketAddress> entry : members.entrySet()) {
             String memberId = entry.getKey();
             InetSocketAddress addr = entry.getValue();
 
-            if (memberId.equals(currentUserId))
+            if (memberId.equals(currentUserId.split("@")[0]))
                 continue; // skip self
 
             try {
@@ -231,39 +265,17 @@ public class GroupHandler {
                 VerboseLogger.log("Failed to send GROUP_UPDATE to " + memberId + ": " + e.getMessage());
             }
         }
-        TerminalDisplay.displayGroupUpdate(groupId, changed);
+
+        TerminalDisplay.displayGroupUpdate(group.getGroupName(), group.isMember(currentUserId.split("@")[0]));
     }
 
-    private Map<String, InetSocketAddress> parseMembersWithPorts(String membersStr) {
-        Map<String, InetSocketAddress> membersMap = new LinkedHashMap<>();
-        if (membersStr == null || membersStr.isBlank())
-            return membersMap;
-
-        for (String member : membersStr.split(",")) {
-            member = member.trim();
-            if (member.isEmpty())
-                continue;
-
-            // Expecting format user@ip:port
-            try {
-                String[] userAndAddr = member.split("@");
-                if (userAndAddr.length != 2)
-                    continue; // invalid format
-
-                String userId = userAndAddr[0];
-                String[] ipPort = userAndAddr[1].split(":");
-                if (ipPort.length != 2)
-                    continue; // invalid format
-
-                String ip = ipPort[0];
-                int port = Integer.parseInt(ipPort[1]);
-
-                InetSocketAddress addr = new InetSocketAddress(ip, port);
-                membersMap.put(userId, addr);
-            } catch (Exception e) {
-                VerboseLogger.log("Failed to parse member: " + member + " - " + e.getMessage());
-            }
+    private List<String> formatMembers(Map<String, InetSocketAddress> members) {
+        List<String> list = new ArrayList<>();
+        for (Map.Entry<String, InetSocketAddress> e : members.entrySet()) {
+            String user = e.getKey();
+            InetSocketAddress addr = e.getValue();
+            list.add(user + "@" + addr.getAddress().getHostAddress() + ":" + addr.getPort());
         }
-        return membersMap;
+        return list;
     }
 }
