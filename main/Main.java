@@ -7,6 +7,7 @@ import main.handlers.*;
 import main.utils.*;
 
 public class Main {
+    public static volatile boolean inGame = false;
     private static int PORT = 50999;
     private static boolean verbose = false;
     private static UDPSocketManager socketManager;
@@ -48,6 +49,8 @@ public class Main {
             GroupManager groupManager = new GroupManager(groupStore);
             GroupHandler groupHandler = new GroupHandler(socketManager, groupManager, currentUser);
 
+            TicTacToeHandler ticTacToeHandler = new TicTacToeHandler(socketManager, currentUser, scanner);
+
             // Broadcast profile periodically
             new Thread(() -> {
                 while (true) {
@@ -61,9 +64,9 @@ public class Main {
             }).start();
 
             System.out.println("[DEBUG] Starting listener thread...");
-            new Thread(() -> startListener(socketManager, postHandler, dmHandler, fileHandler, profileHandler, followHandler, groupHandler, likeHandler, revokeHandler)).start();
+            new Thread(() -> startListener(socketManager, postHandler, dmHandler, fileHandler, profileHandler, followHandler, groupHandler, likeHandler, revokeHandler, ticTacToeHandler)).start();
 
-            runMenu(scanner, socketManager, postHandler, dmHandler, fileHandler, profileHandler, followHandler, groupHandler, groupManager, groupStore, likeHandler, revokeHandler);
+            runMenu(scanner, socketManager, postHandler, dmHandler, fileHandler, profileHandler, followHandler, groupHandler, groupManager, groupStore, likeHandler, revokeHandler, ticTacToeHandler);
 
         } catch (Exception e) {
             System.err.println("LSNP Error: " + e.getMessage());
@@ -72,17 +75,27 @@ public class Main {
     }
 
     private static void runMenu(Scanner scanner, UDPSocketManager socketManager,
-                                 PostHandler postHandler, DMHandler dmHandler,
-                                 FileHandler fileHandler, ProfileHandler profileHandler,
-                                 FollowHandler followHandler, GroupHandler groupHandler,
-                                 GroupManager groupManager, GroupStore groupStore,
-                                 LikeHandler likeHandler, RevokeHandler revokeHandler) {
+                             PostHandler postHandler, DMHandler dmHandler,
+                             FileHandler fileHandler, ProfileHandler profileHandler,
+                             FollowHandler followHandler, GroupHandler groupHandler,
+                             GroupManager groupManager, GroupStore groupStore,
+                             LikeHandler likeHandler, RevokeHandler revokeHandler,
+                             TicTacToeHandler ticTacToeHandler) {
 
-        while (true) {
-            InputManager.InputRequest req = InputManager.getRequestQueue().poll();
-            if (req != null) {
-                System.out.print(req.prompt);
-                String response = scanner.nextLine();
+    while (true) {
+        // ---- Process any pending async input requests first (e.g., TicTacToe invites) ----
+        InputManager.InputRequest req = InputManager.pollRequest();
+        if (req != null) {
+            System.out.print(req.prompt);
+            String response = scanner.nextLine();
+            if (req.responseConsumer != null) {
+                try {
+                    req.responseConsumer.accept(response);
+                } catch (Exception e) {
+                    System.err.println("Error delivering async input response: " + e.getMessage());
+                    e.printStackTrace();
+                }
+            } else {
                 try {
                     req.responseQueue.put(response);
                 } catch (InterruptedException e) {
@@ -90,65 +103,148 @@ public class Main {
                     System.err.println("Input request interrupted.");
                     break;
                 }
-                continue;
             }
+            continue; // handle next loop iteration (don't print menu this cycle)
+        }
 
-            if (!InputManager.getRequestQueue().isEmpty()) {
-                continue;
-            }
+        // If there are other queued requests (edge case) — skip menu
+        if (!InputManager.getRequestQueue().isEmpty()) {
+            try { Thread.sleep(50); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            continue;
+        }
 
-            printMenu();
-            String input = scanner.nextLine();
-            System.out.println("[DEBUG] User selected menu option: " + input);
+        // Pause menu if in a game
+        if (inGame) {
+            try { Thread.sleep(300); } catch (InterruptedException e) { /* ignore */ }
+            continue;
+        }
 
-            switch (input) {
-                case "1":
-                    try {
-                        String content = ConsoleInput.readLine(scanner, "Enter message to broadcast: ");
-                        postHandler.broadcast(content);
-                    } catch (Exception e) {
-                        System.err.println("Error sending post: " + e.getMessage());
-                        e.printStackTrace();
-                    }
-                    break;
-                case "2":
-                    try {
-                        String content = ConsoleInput.readLine(scanner, "Enter message to DM: ");
-                        String recipientId = ConsoleInput.readLine(scanner, "Enter recipient ID: ");
-                        String ip = ConsoleInput.readLine(scanner, "Enter recipient IP address: ");
-                        InetAddress recipientAddress = InetAddress.getByName(ip);
-                        int recipientPort = Integer.parseInt(ConsoleInput.readLine(scanner, "Enter recipient port: "));
-                        dmHandler.send(recipientId, content, recipientAddress, recipientPort);
-                    } catch (Exception e) {
-                        System.err.println("Error sending DM: " + e.getMessage());
-                        e.printStackTrace();
-                    }
-                    break;
-                case "3":
-                    try {
-                        String likedMessageId = ConsoleInput.readLine(scanner, "Enter MESSAGE_ID of the post to like: ");
-                        System.out.println("[DEBUG] Liking post with MESSAGE_ID: " + likedMessageId);
-                        likeHandler.sendLike(likedMessageId);
-                    } catch (Exception e) {
-                        System.err.println("Error sending like: " + e.getMessage());
-                        e.printStackTrace();
-                    }
-                    break;
-                case "4":
-                    System.out.println("[DEBUG] Listing all groups:");
-                    for (String gid : groupStore.getAllGroupIds()) {
-                        GroupStore.Group g = groupStore.getGroup(gid);
-                        System.out.println("Group ID: " + gid + ", Name: " + g.getGroupName() + ", Members: " + g.getMembers());
-                    }
-                    break;
-                case "5":
-                    try {
-                        String groupId = ConsoleInput.readLine(scanner, "Enter new Group ID: ").trim();
-                        String groupName = ConsoleInput.readLine(scanner, "Enter Group Name: ").trim();
-                        String membersLine = ConsoleInput.readLine(scanner, "Enter members with ports (user@ip:port), comma-separated (include yourself!): ").trim();
+        // ---- Normal menu display & handling ----
+        printMenu();
+        String input = scanner.nextLine();
+        System.out.println("[DEBUG] User selected menu option: " + input);
 
-                        Map<String, InetSocketAddress> memberAddresses = new LinkedHashMap<>();
-                        String[] entries = membersLine.split(",");
+        switch (input) {
+            case "1":
+                try {
+                    String content = ConsoleInput.readLine(scanner, "Enter message to broadcast: ");
+                    postHandler.broadcast(content);
+                } catch (Exception e) {
+                    System.err.println("Error sending post: " + e.getMessage());
+                    e.printStackTrace();
+                }
+                break;
+
+            case "2":
+                try {
+                    String content = ConsoleInput.readLine(scanner, "Enter message to DM: ");
+                    String recipientId = ConsoleInput.readLine(scanner, "Enter recipient ID: ");
+                    String ip = ConsoleInput.readLine(scanner, "Enter recipient IP address: ");
+                    InetAddress recipientAddress = InetAddress.getByName(ip);
+                    int recipientPort = Integer.parseInt(ConsoleInput.readLine(scanner, "Enter recipient port: "));
+                    dmHandler.send(recipientId, content, recipientAddress, recipientPort);
+                } catch (Exception e) {
+                    System.err.println("Error sending DM: " + e.getMessage());
+                    e.printStackTrace();
+                }
+                break;
+
+            case "3":
+                try {
+                    String likedMessageId = ConsoleInput.readLine(scanner, "Enter MESSAGE_ID of the post to like: ");
+                    System.out.println("[DEBUG] Liking post with MESSAGE_ID: " + likedMessageId);
+                    likeHandler.sendLike(likedMessageId);
+                } catch (Exception e) {
+                    System.err.println("Error sending like: " + e.getMessage());
+                    e.printStackTrace();
+                }
+                break;
+
+            case "4":
+                System.out.println("[DEBUG] Listing all groups:");
+                for (String gid : groupStore.getAllGroupIds()) {
+                    GroupStore.Group g = groupStore.getGroup(gid);
+                    System.out.println("Group ID: " + gid + ", Name: " + g.getGroupName() + ", Members: " + g.getMembers());
+                }
+                break;
+
+            case "5":
+                try {
+                    String groupId = ConsoleInput.readLine(scanner, "Enter new Group ID: ").trim();
+                    String groupName = ConsoleInput.readLine(scanner, "Enter Group Name: ").trim();
+                    String membersLine = ConsoleInput.readLine(scanner, "Enter members with ports (user@ip:port), comma-separated (include yourself!): ").trim();
+
+                    Map<String, InetSocketAddress> memberAddresses = new LinkedHashMap<>();
+                    String[] entries = membersLine.split(",");
+                    for (String entry : entries) {
+                        entry = entry.trim();
+                        if (entry.isEmpty()) continue;
+
+                        int colonIndex = entry.lastIndexOf(':');
+                        if (colonIndex == -1) {
+                            System.out.println("Invalid member entry, missing port: " + entry);
+                            continue;
+                        }
+                        String userAtIp = entry.substring(0, colonIndex);
+                        String portStr = entry.substring(colonIndex + 1);
+                        int port = Integer.parseInt(portStr);
+                        int atIndex = userAtIp.indexOf('@');
+                        if (atIndex == -1) {
+                            System.out.println("Invalid member entry, missing '@': " + entry);
+                            continue;
+                        }
+
+                        String userId = userAtIp + ":" + port;
+                        String ipStr = userAtIp.substring(atIndex + 1);
+                        InetAddress ip = InetAddress.getByName(ipStr);
+                        InetSocketAddress socketAddr = new InetSocketAddress(ip, port);
+                        memberAddresses.put(userId, socketAddr);
+                    }
+
+                    String selfUserId = currentUser + "@" + InetAddress.getLocalHost().getHostAddress();
+                    if (!memberAddresses.containsKey(selfUserId)) {
+                        InetSocketAddress selfAddr = new InetSocketAddress(InetAddress.getLocalHost(), PORT);
+                        memberAddresses.put(selfUserId, selfAddr);
+                    }
+
+                    long timestamp = System.currentTimeMillis() / 1000L;
+                    groupManager.createGroup(groupId, groupName, memberAddresses, currentUser, timestamp);
+
+                    Map<String, String> createMsg = new LinkedHashMap<>();
+                    createMsg.put("TYPE", "GROUP_CREATE");
+                    createMsg.put("FROM", currentUser);
+                    createMsg.put("GROUP_ID", groupId);
+                    createMsg.put("GROUP_NAME", groupName);
+                    createMsg.put("MEMBERS", String.join(",", memberAddresses.keySet()));
+                    createMsg.put("TIMESTAMP", Long.toString(timestamp));
+                    createMsg.put("TOKEN", TokenValidator.generate(currentUser, 3600, "group"));
+
+                    String serialized = MessageParser.serialize(createMsg);
+                    for (InetSocketAddress addr : memberAddresses.values()) {
+                        socketManager.sendMessage(serialized, addr.getAddress(), addr.getPort());
+                    }
+
+                    VerboseLogger.log("Sent GROUP_CREATE for group " + groupName);
+                } catch (Exception e) {
+                    System.err.println("Failed to send GROUP_CREATE: " + e.getMessage());
+                    e.printStackTrace();
+                }
+                break;
+
+            case "6":
+                try {
+                    String groupId = ConsoleInput.readLine(scanner, "Enter Group ID to update: ").trim();
+                    String addMembersLine = ConsoleInput.readLine(scanner, "Enter comma-separated members to ADD (or leave blank): ").trim();
+                    String removeMembersLine = ConsoleInput.readLine(scanner, "Enter comma-separated members to REMOVE (or leave blank): ").trim();
+
+                    List<String> addMembers = addMembersLine.isEmpty() ? Collections.emptyList()
+                            : Arrays.stream(addMembersLine.split(",")).map(String::trim).filter(s -> !s.isEmpty()).toList();
+                    List<String> removeMembers = removeMembersLine.isEmpty() ? Collections.emptyList()
+                            : Arrays.stream(removeMembersLine.split(",")).map(String::trim).filter(s -> !s.isEmpty()).toList();
+
+                    Map<String, InetSocketAddress> addMembersMap = new LinkedHashMap<>();
+                    if (!addMembersLine.isEmpty()) {
+                        String[] entries = addMembersLine.split(",");
                         for (String entry : entries) {
                             entry = entry.trim();
                             if (entry.isEmpty()) continue;
@@ -161,6 +257,7 @@ public class Main {
                             String userAtIp = entry.substring(0, colonIndex);
                             String portStr = entry.substring(colonIndex + 1);
                             int port = Integer.parseInt(portStr);
+
                             int atIndex = userAtIp.indexOf('@');
                             if (atIndex == -1) {
                                 System.out.println("Invalid member entry, missing '@': " + entry);
@@ -168,167 +265,114 @@ public class Main {
                             }
 
                             String userId = userAtIp + ":" + port;
-                            String ipStr = userAtIp.substring(atIndex + 1);
-                            InetAddress ip = InetAddress.getByName(ipStr);
+                            InetAddress ip = InetAddress.getByName(userAtIp.substring(atIndex + 1));
                             InetSocketAddress socketAddr = new InetSocketAddress(ip, port);
-                            memberAddresses.put(userId, socketAddr);
+
+                            addMembersMap.put(userId, socketAddr);
                         }
-
-                        String selfUserId = currentUser + "@" + InetAddress.getLocalHost().getHostAddress();
-                        if (!memberAddresses.containsKey(selfUserId)) {
-                            InetSocketAddress selfAddr = new InetSocketAddress(InetAddress.getLocalHost(), PORT);
-                            memberAddresses.put(selfUserId, selfAddr);
-                        }
-
-                        long timestamp = System.currentTimeMillis() / 1000L;
-                        groupManager.createGroup(groupId, groupName, memberAddresses, currentUser, timestamp);
-
-                        Map<String, String> createMsg = new LinkedHashMap<>();
-                        createMsg.put("TYPE", "GROUP_CREATE");
-                        createMsg.put("FROM", currentUser);
-                        createMsg.put("GROUP_ID", groupId);
-                        createMsg.put("GROUP_NAME", groupName);
-                        createMsg.put("MEMBERS", String.join(",", memberAddresses.keySet()));
-                        createMsg.put("TIMESTAMP", Long.toString(timestamp));
-                        createMsg.put("TOKEN", TokenValidator.generate(currentUser, 3600, "group"));
-
-                        String serialized = MessageParser.serialize(createMsg);
-                        for (InetSocketAddress addr : memberAddresses.values()) {
-                            socketManager.sendMessage(serialized, addr.getAddress(), addr.getPort());
-                        }
-
-                        VerboseLogger.log("Sent GROUP_CREATE for group " + groupName);
-                    } catch (Exception e) {
-                        System.err.println("Failed to send GROUP_CREATE: " + e.getMessage());
-                        e.printStackTrace();
                     }
-                    break;
-                case "6":
-                    try {
-                        String groupId = ConsoleInput.readLine(scanner, "Enter Group ID to update: ").trim();
-                        String addMembersLine = ConsoleInput.readLine(scanner, "Enter comma-separated members to ADD (or leave blank): ").trim();
-                        String removeMembersLine = ConsoleInput.readLine(scanner, "Enter comma-separated members to REMOVE (or leave blank): ").trim();
 
-                        List<String> addMembers = addMembersLine.isEmpty() ? Collections.emptyList()
-                                : Arrays.stream(addMembersLine.split(",")).map(String::trim).filter(s -> !s.isEmpty()).toList();
-                        List<String> removeMembers = removeMembersLine.isEmpty() ? Collections.emptyList()
-                                : Arrays.stream(removeMembersLine.split(",")).map(String::trim).filter(s -> !s.isEmpty()).toList();
+                    groupHandler.sendGroupUpdate(groupId, addMembersMap, removeMembers);
+                } catch (Exception e) {
+                    System.err.println("Error updating group: " + e.getMessage());
+                    e.printStackTrace();
+                }
+                break;
 
-                        Map<String, InetSocketAddress> addMembersMap = new LinkedHashMap<>();
-                        if (!addMembersLine.isEmpty()) {
-                            String[] entries = addMembersLine.split(",");
-                            for (String entry : entries) {
-                                entry = entry.trim();
-                                if (entry.isEmpty()) continue;
+            case "7":
+                try {
+                    String groupId = ConsoleInput.readLine(scanner, "Enter Group ID to send message to: ").trim();
+                    String content = ConsoleInput.readLine(scanner, "Enter message content: ").trim();
+                    groupHandler.sendGroupMessage(groupId, content);
+                    VerboseLogger.log("Sent GROUP_MESSAGE to group " + groupId);
+                } catch (Exception e) {
+                    System.err.println("Failed to send group message: " + e.getMessage());
+                    e.printStackTrace();
+                }
+                break;
 
-                                int colonIndex = entry.lastIndexOf(':');
-                                if (colonIndex == -1) {
-                                    System.out.println("Invalid member entry, missing port: " + entry);
-                                    continue;
-                                }
-                                String userAtIp = entry.substring(0, colonIndex);
-                                String portStr = entry.substring(colonIndex + 1);
-                                int port = Integer.parseInt(portStr);
+            case "8":
+                try {
+                    String filePath = ConsoleInput.readLine(scanner, "Enter path to file: ").trim();
+                    String recipientId = ConsoleInput.readLine(scanner, "Enter recipient ID: ").trim();
+                    String ip = ConsoleInput.readLine(scanner, "Enter recipient IP address: ").trim();
+                    InetAddress recipientAddress = InetAddress.getByName(ip);
+                    int recipientPort = Integer.parseInt(ConsoleInput.readLine(scanner, "Enter recipient port: "));
+                    fileHandler.sendFile(recipientId, filePath, "File transfer", recipientAddress, recipientPort);
+                } catch (Exception e) {
+                    System.err.println("Error sending file: " + e.getMessage());
+                    e.printStackTrace();
+                }
+                break;
 
-                                int atIndex = userAtIp.indexOf('@');
-                                if (atIndex == -1) {
-                                    System.out.println("Invalid member entry, missing '@': " + entry);
-                                    continue;
-                                }
+            case "9":
+                try {
+                    ticTacToeHandler.startGame();
+                } catch (Exception e) {
+                    System.err.println("Error starting TicTacToe: " + e.getMessage());
+                    e.printStackTrace();
+                }
+                break;
 
-                                String userId = userAtIp + ":" + port;
-                                InetAddress ip = InetAddress.getByName(userAtIp.substring(atIndex + 1));
-                                InetSocketAddress socketAddr = new InetSocketAddress(ip, port);
+            case "10":
+                System.out.println("\n=== KNOWN PROFILES ===");
+                profileHandler.getKnownProfiles().forEach((id, data) -> {
+                    String name = data.getOrDefault("DISPLAY_NAME", id);
+                    String stat = data.getOrDefault("STATUS", "");
+                    System.out.println(name + " (" + id + ") - " + stat);
+                });
+                break;
 
-                                addMembersMap.put(userId, socketAddr);
-                            }
-                        }
-
-                        groupHandler.sendGroupUpdate(groupId, addMembersMap, removeMembers);
-                    } catch (Exception e) {
-                        System.err.println("Error updating group: " + e.getMessage());
-                        e.printStackTrace();
+            case "11":
+                System.out.println("1. Follow user");
+                System.out.println("2. Unfollow user");
+                String choice = ConsoleInput.readLine(scanner, "Choose: ").trim();
+                try {
+                    if (choice.equals("1")) {
+                        String targetUserId = ConsoleInput.readLine(scanner, "Enter target user ID: ").trim();
+                        String ip = ConsoleInput.readLine(scanner, "Enter target IP: ").trim();
+                        int port = Integer.parseInt(ConsoleInput.readLine(scanner, "Enter target port: ").trim());
+                        followHandler.follow(targetUserId, ip, port, 3600);
+                    } else if (choice.equals("2")) {
+                        String targetUserId = ConsoleInput.readLine(scanner, "Enter target user ID: ").trim();
+                        followHandler.unfollow(targetUserId);
                     }
-                    break;
-                case "7":
-                    try {
-                        String groupId = ConsoleInput.readLine(scanner, "Enter Group ID to send message to: ").trim();
-                        String content = ConsoleInput.readLine(scanner, "Enter message content: ").trim();
-                        groupHandler.sendGroupMessage(groupId, content);
-                        VerboseLogger.log("Sent GROUP_MESSAGE to group " + groupId);
-                    } catch (Exception e) {
-                        System.err.println("Failed to send group message: " + e.getMessage());
-                        e.printStackTrace();
-                    }
-                    break;
-                case "8":
-                    try {
-                        String filePath = ConsoleInput.readLine(scanner, "Enter path to file: ").trim();
-                        String recipientId = ConsoleInput.readLine(scanner, "Enter recipient ID: ").trim();
-                        String ip = ConsoleInput.readLine(scanner, "Enter recipient IP address: ").trim();
-                        InetAddress recipientAddress = InetAddress.getByName(ip);
-                        int recipientPort = Integer.parseInt(ConsoleInput.readLine(scanner, "Enter recipient port: "));
-                        fileHandler.sendFile(recipientId, filePath, "File transfer", recipientAddress, recipientPort);
-                    } catch (Exception e) {
-                        System.err.println("Error sending file: " + e.getMessage());
-                        e.printStackTrace();
-                    }
-                    break;
-                case "9":
-                    System.out.println("[DEBUG] Option 9 selected - Play Tic Tac Toe (not implemented yet)");
-                    break;
-                case "10":
-                    System.out.println("\n=== KNOWN PROFILES ===");
-                    profileHandler.getKnownProfiles().forEach((id, data) -> {
-                        String name = data.getOrDefault("DISPLAY_NAME", id);
-                        String stat = data.getOrDefault("STATUS", "");
-                        System.out.println(name + " (" + id + ") - " + stat);
-                    });
-                    break;
-                case "11":
-                    System.out.println("1. Follow user");
-                    System.out.println("2. Unfollow user");
-                    String choice = ConsoleInput.readLine(scanner, "Choose: ").trim();
-                    try {
-                        if (choice.equals("1")) {
-                            String targetUserId = ConsoleInput.readLine(scanner, "Enter target user ID: ").trim();
-                            String ip = ConsoleInput.readLine(scanner, "Enter target IP: ").trim();
-                            int port = Integer.parseInt(ConsoleInput.readLine(scanner, "Enter target port: ").trim());
-                            followHandler.follow(targetUserId, ip, port, 3600);
-                        } else if (choice.equals("2")) {
-                            String targetUserId = ConsoleInput.readLine(scanner, "Enter target user ID: ").trim();
-                            followHandler.unfollow(targetUserId);
-                        }
-                    } catch (Exception e) {
-                        System.err.println("Follow/Unfollow error: " + e.getMessage());
-                        e.printStackTrace();
-                    }
-                    break;
-                case "12":
-                    verbose = !verbose;
-                    main.utils.VerboseLogger.setEnabled(verbose);
-                    System.out.println("[DEBUG] Verbose mode toggled to: " + (verbose ? "ON" : "OFF"));
-                    break;
-                case "13":
-                    try {
-                        String tokenToRevoke = ConsoleInput.readLine(scanner, "Enter the exact token string to revoke: ");
-                        System.out.println("[DEBUG] Revoking token: " + tokenToRevoke);
-                        revokeHandler.sendRevoke(tokenToRevoke);
-                    } catch (Exception e) {
-                        System.err.println("Error sending revoke request: " + e.getMessage());
-                        e.printStackTrace();
-                    }
-                    break;
-                case "0":
-                    System.out.println("Goodbye.");
-                    System.exit(0);
-                    break;
-                default:
-                    System.out.println("Invalid choice.");
-                    break;
-            }
+                } catch (Exception e) {
+                    System.err.println("Follow/Unfollow error: " + e.getMessage());
+                    e.printStackTrace();
+                }
+                break;
+
+            case "12":
+                verbose = !verbose;
+                main.utils.VerboseLogger.setEnabled(verbose);
+                System.out.println("[DEBUG] Verbose mode toggled to: " + (verbose ? "ON" : "OFF"));
+                break;
+
+            case "13":
+                try {
+                    String tokenToRevoke = ConsoleInput.readLine(scanner, "Enter the exact token string to revoke: ");
+                    System.out.println("[DEBUG] Revoking token: " + tokenToRevoke);
+                    revokeHandler.sendRevoke(tokenToRevoke);
+                } catch (Exception e) {
+                    System.err.println("Error sending revoke request: " + e.getMessage());
+                    e.printStackTrace();
+                }
+                break;
+
+            case "0":
+                System.out.println("Goodbye.");
+                System.exit(0);
+                break;
+
+            default:
+                System.out.println("Invalid choice.");
+                break;
         }
     }
+}
+
+
 
     private static void printMenu() {
         System.out.println("\n=== LSNP Main Menu ===");
@@ -353,7 +397,8 @@ public class Main {
                                       DMHandler dmHandler, FileHandler fileHandler,
                                       ProfileHandler profileHandler, FollowHandler followHandler,
                                       GroupHandler groupHandler, LikeHandler likeHandler,
-                                      RevokeHandler revokeHandler) {
+                                      RevokeHandler revokeHandler,
+                                      TicTacToeHandler ticTacToeHandler) {
         try {
             System.out.println("[DEBUG] Listener started, waiting for messages...");
             while (true) {
@@ -390,6 +435,7 @@ public class Main {
                     }
                     case "PROFILE" -> profileHandler.handle(parsed, senderIP.getHostAddress());
                     case "FOLLOW", "UNFOLLOW" -> followHandler.handle(parsed, senderIP.getHostAddress());
+                    case "TICTACTOE_INVITE", "TICTACTOE_MOVE", "TICTACTOE_RESULT" -> ticTacToeHandler.handle(parsed, senderIP.getHostAddress());
                     default -> VerboseLogger.log("Unhandled TYPE: " + type);
                 }
             }
