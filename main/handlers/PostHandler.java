@@ -7,18 +7,23 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 import main.UDPSocketManager;
-import main.utils.*;
+import main.utils.IPLogger;
+import main.utils.MessageParser;
+import main.utils.TerminalDisplay;
+import main.utils.TokenValidator;
+import main.utils.VerboseLogger;
 
 public class PostHandler {
     private final UDPSocketManager socketManager;
     private final String currentUser;
+    private final FollowHandler followHandler;
 
     private static final long DEFAULT_TTL_SECONDS = 3600;
 
-    public PostHandler(UDPSocketManager socketManager, String currentUser) {
+    public PostHandler(UDPSocketManager socketManager, String currentUser, FollowHandler followHandler) {
         this.socketManager = socketManager;
         this.currentUser = currentUser;
-        System.out.println("[DEBUG] PostHandler created for user: " + currentUser);
+        this.followHandler = followHandler;
     }
 
     public void broadcast(String content) throws IOException {
@@ -40,13 +45,19 @@ public class PostHandler {
         message.put("MESSAGE_ID", UUID.randomUUID().toString().replace("-", "").substring(0, 16));
         message.put("TOKEN", token);
 
-        System.out.println("[DEBUG] Sending broadcast message:");
-        message.forEach((k, v) -> System.out.println("  " + k + ": " + v));
+        if (VerboseLogger.isEnabled()) {
+            System.out.println("[DEBUG] Sending post to followed peers:");
+            message.forEach((k, v) -> System.out.println("  " + k + ": " + v));
+        }
 
-        VerboseLogger.send(message, "255.255.255.255");
-        socketManager.sendMessage(MessageParser.serialize(message),
-                InetAddress.getByName("255.255.255.255"),
-                socketManager.getPort());
+        // Send only to followed peers
+        for (FollowHandler.FollowedPeer peer : followHandler.getFollowedPeers()) {
+            socketManager.sendMessage(
+                MessageParser.serialize(message),
+                InetAddress.getByName(peer.ip),
+                peer.port
+            );
+        }
     }
 
     public void handle(Map<String, String> message, String fromIP) {
@@ -60,8 +71,20 @@ public class PostHandler {
             return;
         }
 
-        String user = message.getOrDefault("USER_ID", "Unknown");
+        String senderUserId = message.getOrDefault("USER_ID", "Unknown");
+
+        // Only display if sender is followed
+        boolean isFollowed = followHandler.getFollowedPeers().stream()
+                .anyMatch(peer -> peer.userId.equals(senderUserId));
+
+        if (!isFollowed) {
+            if (VerboseLogger.isEnabled()) {
+                System.out.println("[DEBUG] Ignoring post from non-followed user: " + senderUserId);
+            }
+            return;
+        }
+
         String content = message.getOrDefault("CONTENT", "(no content)");
-        TerminalDisplay.displayPost(user, content);
+        TerminalDisplay.displayPost(senderUserId, content);
     }
 }
