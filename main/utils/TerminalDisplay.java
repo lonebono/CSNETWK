@@ -35,6 +35,12 @@ public class TerminalDisplay {
         System.out.println("----------------");
     }
 
+    public static void displayLikeNotification(String liker, String likedMessageId) {
+        System.out.println("\n=== NEW LIKE ===");
+        System.out.println(liker + " liked post with ID: " + likedMessageId);
+        System.out.println("=================");
+    }
+
     public static void displayGroupCreate(String groupName) {
         System.out.println("\n=== GROUP CREATE ===");
         System.out.println("You’ve been added to " + groupName);
@@ -52,5 +58,4 @@ public class TerminalDisplay {
         System.out.println(fromUser + " sent \"" + content + "\" to group \"" + groupName + "\"");
         System.out.println("----------------");
     }
-
 }

@@ -37,6 +37,8 @@ public class Main {
             DMHandler dmHandler = new DMHandler(socketManager, currentUser);
             FileHandler fileHandler = new FileHandler(socketManager, currentUser);
             PingHandler pingHandler = new PingHandler(socketManager, currentUser);
+            LikeHandler likeHandler = new LikeHandler(socketManager, currentUser);
+            RevokeHandler revokeHandler = new RevokeHandler(socketManager, currentUser);
 
             ProfileHandler profileHandler = new ProfileHandler(socketManager, currentUser, displayName, status);
             FollowHandler followHandler = new FollowHandler(socketManager, currentUser);
@@ -59,9 +61,9 @@ public class Main {
             }).start();
 
             System.out.println("[DEBUG] Starting listener thread...");
-            new Thread(() -> startListener(socketManager, postHandler, dmHandler, fileHandler, profileHandler, followHandler, groupHandler)).start();
+            new Thread(() -> startListener(socketManager, postHandler, dmHandler, fileHandler, profileHandler, followHandler, groupHandler, likeHandler, revokeHandler)).start();
 
-            runMenu(scanner, socketManager, postHandler, dmHandler, fileHandler, profileHandler, followHandler, groupHandler, groupManager, groupStore);
+            runMenu(scanner, socketManager, postHandler, dmHandler, fileHandler, profileHandler, followHandler, groupHandler, groupManager, groupStore, likeHandler, revokeHandler);
 
         } catch (Exception e) {
             System.err.println("LSNP Error: " + e.getMessage());
@@ -73,7 +75,8 @@ public class Main {
                                  PostHandler postHandler, DMHandler dmHandler,
                                  FileHandler fileHandler, ProfileHandler profileHandler,
                                  FollowHandler followHandler, GroupHandler groupHandler,
-                                 GroupManager groupManager, GroupStore groupStore) {
+                                 GroupManager groupManager, GroupStore groupStore,
+                                 LikeHandler likeHandler, RevokeHandler revokeHandler) {
 
         while (true) {
             InputManager.InputRequest req = InputManager.getRequestQueue().poll();
@@ -122,7 +125,14 @@ public class Main {
                     }
                     break;
                 case "3":
-                    System.out.println("[DEBUG] Option 3 selected - Like a Post (not implemented yet)");
+                    try {
+                        String likedMessageId = ConsoleInput.readLine(scanner, "Enter MESSAGE_ID of the post to like: ");
+                        System.out.println("[DEBUG] Liking post with MESSAGE_ID: " + likedMessageId);
+                        likeHandler.sendLike(likedMessageId);
+                    } catch (Exception e) {
+                        System.err.println("Error sending like: " + e.getMessage());
+                        e.printStackTrace();
+                    }
                     break;
                 case "4":
                     System.out.println("[DEBUG] Listing all groups:");
@@ -299,6 +309,16 @@ public class Main {
                     main.utils.VerboseLogger.setEnabled(verbose);
                     System.out.println("[DEBUG] Verbose mode toggled to: " + (verbose ? "ON" : "OFF"));
                     break;
+                case "13":
+                    try {
+                        String tokenToRevoke = ConsoleInput.readLine(scanner, "Enter the exact token string to revoke: ");
+                        System.out.println("[DEBUG] Revoking token: " + tokenToRevoke);
+                        revokeHandler.sendRevoke(tokenToRevoke);
+                    } catch (Exception e) {
+                        System.err.println("Error sending revoke request: " + e.getMessage());
+                        e.printStackTrace();
+                    }
+                    break;
                 case "0":
                     System.out.println("Goodbye.");
                     System.exit(0);
@@ -324,6 +344,7 @@ public class Main {
         System.out.println("10. View Profiles");
         System.out.println("11. Follow / Unfollow User");
         System.out.println("12. Toggle Verbose Mode");
+        System.out.println("13. Revoke Token");
         System.out.println("0. Exit");
         System.out.print("Select option: ");
     }
@@ -331,7 +352,8 @@ public class Main {
     private static void startListener(UDPSocketManager socketManager, PostHandler postHandler,
                                       DMHandler dmHandler, FileHandler fileHandler,
                                       ProfileHandler profileHandler, FollowHandler followHandler,
-                                      GroupHandler groupHandler) {
+                                      GroupHandler groupHandler, LikeHandler likeHandler,
+                                      RevokeHandler revokeHandler) {
         try {
             System.out.println("[DEBUG] Listener started, waiting for messages...");
             while (true) {
@@ -360,6 +382,8 @@ public class Main {
                     case "DM" -> dmHandler.handle(parsed);
                     case "GROUP_CREATE", "GROUP_UPDATE", "GROUP_MESSAGE" -> groupHandler.handle(parsed, senderIP.getHostAddress());
                     case "FILE_OFFER", "FILE_CHUNK", "FILE_RECEIVED" -> fileHandler.handle(parsed, senderIP.getHostAddress());
+                    case "LIKE" -> likeHandler.handle(parsed, senderIP.getHostAddress());
+                    case "REVOKE" -> revokeHandler.handle(parsed, senderIP.getHostAddress());
                     case "ACK" -> {
                         fileHandler.handleAck(parsed);
                         dmHandler.handleAck(parsed);
