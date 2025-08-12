@@ -15,6 +15,7 @@ public class Main {
     private static boolean verbose = false;
     private static UDPSocketManager socketManager;
     private static String currentUser;
+    
 
     public static void main(String[] args) {
         Scanner scanner = new Scanner(System.in);
@@ -38,11 +39,13 @@ public class Main {
 
             System.out.println("[DEBUG] Current user set to: " + currentUser);
 
-            PostHandler postHandler = new PostHandler(socketManager, currentUser);
             DMHandler dmHandler = new DMHandler(socketManager, currentUser);
             FileHandler fileHandler = new FileHandler(socketManager, currentUser);
             PingHandler pingHandler = new PingHandler(socketManager, currentUser);
             ProfileHandler profileHandler = new ProfileHandler(socketManager, currentUser, displayName, status);
+            FollowHandler followHandler = new FollowHandler(socketManager, currentUser);
+            PostHandler postHandler = new PostHandler(socketManager, currentUser, followHandler);
+
 
             new Thread(() -> {
                 while (true) {
@@ -56,9 +59,9 @@ public class Main {
             }).start();
 
             System.out.println("[DEBUG] Starting listener thread...");
-            new Thread(() -> startListener(socketManager, postHandler, dmHandler, fileHandler, profileHandler)).start();
+            new Thread(() -> startListener(socketManager, postHandler, dmHandler, fileHandler, profileHandler, followHandler)).start();
 
-            runMenu(scanner, socketManager, postHandler, dmHandler, fileHandler, profileHandler);
+            runMenu(scanner, socketManager, postHandler, dmHandler, fileHandler, profileHandler, followHandler);
         } catch (Exception e) {
             System.err.println("LSNP Error: " + e.getMessage());
             e.printStackTrace();
@@ -67,7 +70,8 @@ public class Main {
 
     private static void runMenu(Scanner scanner, UDPSocketManager socketManager,
                                  PostHandler postHandler, DMHandler dmHandler,
-                                 FileHandler fileHandler, ProfileHandler profileHandler) {
+                                 FileHandler fileHandler, ProfileHandler profileHandler,
+                                 FollowHandler followHandler) {
         while (true) {
             InputManager.InputRequest req = InputManager.getRequestQueue().poll();
             if (req != null) {
@@ -150,9 +154,26 @@ public class Main {
                         System.out.println(name + " (" + id + ") - " + stat);
                     });
                     break;
-                case "10":
-                    System.out.println("[DEBUG] Option 10 selected - Follow / Unfollow User (not implemented yet)");
+                    case "10":
+                    System.out.println("1. Follow user");
+                    System.out.println("2. Unfollow user");
+                    String choice = ConsoleInput.readLine(scanner, "Choose: ").trim();
+                    try {
+                        if (choice.equals("1")) {
+                            String targetUserId = ConsoleInput.readLine(scanner, "Enter target user ID: ").trim();
+                            String ip = ConsoleInput.readLine(scanner, "Enter target IP: ").trim();
+                            int port = Integer.parseInt(ConsoleInput.readLine(scanner, "Enter target port: ").trim());
+                            followHandler.follow(targetUserId, ip, port, 3600);
+                        } else if (choice.equals("2")) {
+                            String targetUserId = ConsoleInput.readLine(scanner, "Enter target user ID: ").trim();
+                            followHandler.unfollow(targetUserId);
+                        }
+                    } catch (Exception e) {
+                        System.err.println("Follow/Unfollow error: " + e.getMessage());
+                        e.printStackTrace();
+                    }
                     break;
+                
                 case "11":
                     verbose = !verbose;
                     main.utils.VerboseLogger.setEnabled(verbose);
@@ -186,11 +207,7 @@ public class Main {
         System.out.print("Select option: ");
     }
 
-    private static void startListener(UDPSocketManager socketManager,
-                                      PostHandler postHandler,
-                                      DMHandler dmHandler,
-                                      FileHandler fileHandler,
-                                      ProfileHandler profileHandler) {
+    private static void startListener(UDPSocketManager socketManager, PostHandler postHandler, DMHandler dmHandler, FileHandler fileHandler, ProfileHandler profileHandler, FollowHandler followHandler) {
         try {
             System.out.println("[DEBUG] Listener started, waiting for messages...");
             while (true) {
@@ -232,8 +249,9 @@ public class Main {
                         dmHandler.handleAck(parsed);
                     }
                     case "PROFILE" -> profileHandler.handle(parsed, senderIP.getHostAddress());
+                    case "FOLLOW", "UNFOLLOW" -> followHandler.handle(parsed, senderIP.getHostAddress());
                     default -> VerboseLogger.log("Unhandled TYPE: " + type);
-                }
+                }                
             }
         } catch (Exception e) {
             System.err.println("Listener error: " + e.getMessage());
