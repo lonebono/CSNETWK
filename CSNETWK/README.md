@@ -1,0 +1,9 @@
+# CSNETWK
+
+1. Clone this repo into your project folder
+2. In root/ (root/main/ is wrong), compile using `javac -d . main/*.java main/handlers/*.java main/utils/*.java main/data/*.java`
+3. In root/, run using `java main.Main (port number of choice 50999/51000)`
+
+CREATE BRACHES WHEN WORKING ON YOUR FEATURE THEN MERGE INTO MAIN BRANCH!! (if needed lmao)
+
+DON'T FORGET TO GITIGNORE CLASS FILES
