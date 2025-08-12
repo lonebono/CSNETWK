@@ -2,20 +2,15 @@ package main;
 
 import java.net.*;
 import java.util.*;
+import main.data.GroupStore;
 import main.handlers.*;
-import main.utils.ConsoleInput;
-import main.utils.IPLogger;
-import main.utils.InputManager;
-import main.utils.MessageParser;
-import main.utils.TokenValidator;
-import main.utils.VerboseLogger;
+import main.utils.*;
 
 public class Main {
     private static int PORT = 50999;
     private static boolean verbose = false;
     private static UDPSocketManager socketManager;
     private static String currentUser;
-    
 
     public static void main(String[] args) {
         Scanner scanner = new Scanner(System.in);
@@ -42,16 +37,21 @@ public class Main {
             DMHandler dmHandler = new DMHandler(socketManager, currentUser);
             FileHandler fileHandler = new FileHandler(socketManager, currentUser);
             PingHandler pingHandler = new PingHandler(socketManager, currentUser);
+
             ProfileHandler profileHandler = new ProfileHandler(socketManager, currentUser, displayName, status);
             FollowHandler followHandler = new FollowHandler(socketManager, currentUser);
             PostHandler postHandler = new PostHandler(socketManager, currentUser, followHandler);
 
+            GroupStore groupStore = new GroupStore();
+            GroupManager groupManager = new GroupManager(groupStore);
+            GroupHandler groupHandler = new GroupHandler(socketManager, groupManager, currentUser);
 
+            // Broadcast profile periodically
             new Thread(() -> {
                 while (true) {
                     profileHandler.broadcastProfile();
                     try {
-                        Thread.sleep(50_000); 
+                        Thread.sleep(50_000);
                     } catch (InterruptedException e) {
                         break;
                     }
@@ -59,9 +59,10 @@ public class Main {
             }).start();
 
             System.out.println("[DEBUG] Starting listener thread...");
-            new Thread(() -> startListener(socketManager, postHandler, dmHandler, fileHandler, profileHandler, followHandler)).start();
+            new Thread(() -> startListener(socketManager, postHandler, dmHandler, fileHandler, profileHandler, followHandler, groupHandler)).start();
 
-            runMenu(scanner, socketManager, postHandler, dmHandler, fileHandler, profileHandler, followHandler);
+            runMenu(scanner, socketManager, postHandler, dmHandler, fileHandler, profileHandler, followHandler, groupHandler, groupManager, groupStore);
+
         } catch (Exception e) {
             System.err.println("LSNP Error: " + e.getMessage());
             e.printStackTrace();
@@ -71,7 +72,9 @@ public class Main {
     private static void runMenu(Scanner scanner, UDPSocketManager socketManager,
                                  PostHandler postHandler, DMHandler dmHandler,
                                  FileHandler fileHandler, ProfileHandler profileHandler,
-                                 FollowHandler followHandler) {
+                                 FollowHandler followHandler, GroupHandler groupHandler,
+                                 GroupManager groupManager, GroupStore groupStore) {
+
         while (true) {
             InputManager.InputRequest req = InputManager.getRequestQueue().poll();
             if (req != null) {
@@ -122,15 +125,133 @@ public class Main {
                     System.out.println("[DEBUG] Option 3 selected - Like a Post (not implemented yet)");
                     break;
                 case "4":
-                    System.out.println("[DEBUG] Option 4 selected - View Groups (not implemented yet)");
+                    System.out.println("[DEBUG] Listing all groups:");
+                    for (String gid : groupStore.getAllGroupIds()) {
+                        GroupStore.Group g = groupStore.getGroup(gid);
+                        System.out.println("Group ID: " + gid + ", Name: " + g.getGroupName() + ", Members: " + g.getMembers());
+                    }
                     break;
                 case "5":
-                    System.out.println("[DEBUG] Option 5 selected - Create / Update Group (not implemented yet)");
+                    try {
+                        String groupId = ConsoleInput.readLine(scanner, "Enter new Group ID: ").trim();
+                        String groupName = ConsoleInput.readLine(scanner, "Enter Group Name: ").trim();
+                        String membersLine = ConsoleInput.readLine(scanner, "Enter members with ports (user@ip:port), comma-separated (include yourself!): ").trim();
+
+                        Map<String, InetSocketAddress> memberAddresses = new LinkedHashMap<>();
+                        String[] entries = membersLine.split(",");
+                        for (String entry : entries) {
+                            entry = entry.trim();
+                            if (entry.isEmpty()) continue;
+
+                            int colonIndex = entry.lastIndexOf(':');
+                            if (colonIndex == -1) {
+                                System.out.println("Invalid member entry, missing port: " + entry);
+                                continue;
+                            }
+                            String userAtIp = entry.substring(0, colonIndex);
+                            String portStr = entry.substring(colonIndex + 1);
+                            int port = Integer.parseInt(portStr);
+                            int atIndex = userAtIp.indexOf('@');
+                            if (atIndex == -1) {
+                                System.out.println("Invalid member entry, missing '@': " + entry);
+                                continue;
+                            }
+
+                            String userId = userAtIp + ":" + port;
+                            String ipStr = userAtIp.substring(atIndex + 1);
+                            InetAddress ip = InetAddress.getByName(ipStr);
+                            InetSocketAddress socketAddr = new InetSocketAddress(ip, port);
+                            memberAddresses.put(userId, socketAddr);
+                        }
+
+                        String selfUserId = currentUser + "@" + InetAddress.getLocalHost().getHostAddress();
+                        if (!memberAddresses.containsKey(selfUserId)) {
+                            InetSocketAddress selfAddr = new InetSocketAddress(InetAddress.getLocalHost(), PORT);
+                            memberAddresses.put(selfUserId, selfAddr);
+                        }
+
+                        long timestamp = System.currentTimeMillis() / 1000L;
+                        groupManager.createGroup(groupId, groupName, memberAddresses, currentUser, timestamp);
+
+                        Map<String, String> createMsg = new LinkedHashMap<>();
+                        createMsg.put("TYPE", "GROUP_CREATE");
+                        createMsg.put("FROM", currentUser);
+                        createMsg.put("GROUP_ID", groupId);
+                        createMsg.put("GROUP_NAME", groupName);
+                        createMsg.put("MEMBERS", String.join(",", memberAddresses.keySet()));
+                        createMsg.put("TIMESTAMP", Long.toString(timestamp));
+                        createMsg.put("TOKEN", TokenValidator.generate(currentUser, 3600, "group"));
+
+                        String serialized = MessageParser.serialize(createMsg);
+                        for (InetSocketAddress addr : memberAddresses.values()) {
+                            socketManager.sendMessage(serialized, addr.getAddress(), addr.getPort());
+                        }
+
+                        VerboseLogger.log("Sent GROUP_CREATE for group " + groupName);
+                    } catch (Exception e) {
+                        System.err.println("Failed to send GROUP_CREATE: " + e.getMessage());
+                        e.printStackTrace();
+                    }
                     break;
                 case "6":
-                    System.out.println("[DEBUG] Option 6 selected - Send Group Message (not implemented yet)");
+                    try {
+                        String groupId = ConsoleInput.readLine(scanner, "Enter Group ID to update: ").trim();
+                        String addMembersLine = ConsoleInput.readLine(scanner, "Enter comma-separated members to ADD (or leave blank): ").trim();
+                        String removeMembersLine = ConsoleInput.readLine(scanner, "Enter comma-separated members to REMOVE (or leave blank): ").trim();
+
+                        List<String> addMembers = addMembersLine.isEmpty() ? Collections.emptyList()
+                                : Arrays.stream(addMembersLine.split(",")).map(String::trim).filter(s -> !s.isEmpty()).toList();
+                        List<String> removeMembers = removeMembersLine.isEmpty() ? Collections.emptyList()
+                                : Arrays.stream(removeMembersLine.split(",")).map(String::trim).filter(s -> !s.isEmpty()).toList();
+
+                        Map<String, InetSocketAddress> addMembersMap = new LinkedHashMap<>();
+                        if (!addMembersLine.isEmpty()) {
+                            String[] entries = addMembersLine.split(",");
+                            for (String entry : entries) {
+                                entry = entry.trim();
+                                if (entry.isEmpty()) continue;
+
+                                int colonIndex = entry.lastIndexOf(':');
+                                if (colonIndex == -1) {
+                                    System.out.println("Invalid member entry, missing port: " + entry);
+                                    continue;
+                                }
+                                String userAtIp = entry.substring(0, colonIndex);
+                                String portStr = entry.substring(colonIndex + 1);
+                                int port = Integer.parseInt(portStr);
+
+                                int atIndex = userAtIp.indexOf('@');
+                                if (atIndex == -1) {
+                                    System.out.println("Invalid member entry, missing '@': " + entry);
+                                    continue;
+                                }
+
+                                String userId = userAtIp + ":" + port;
+                                InetAddress ip = InetAddress.getByName(userAtIp.substring(atIndex + 1));
+                                InetSocketAddress socketAddr = new InetSocketAddress(ip, port);
+
+                                addMembersMap.put(userId, socketAddr);
+                            }
+                        }
+
+                        groupHandler.sendGroupUpdate(groupId, addMembersMap, removeMembers);
+                    } catch (Exception e) {
+                        System.err.println("Error updating group: " + e.getMessage());
+                        e.printStackTrace();
+                    }
                     break;
                 case "7":
+                    try {
+                        String groupId = ConsoleInput.readLine(scanner, "Enter Group ID to send message to: ").trim();
+                        String content = ConsoleInput.readLine(scanner, "Enter message content: ").trim();
+                        groupHandler.sendGroupMessage(groupId, content);
+                        VerboseLogger.log("Sent GROUP_MESSAGE to group " + groupId);
+                    } catch (Exception e) {
+                        System.err.println("Failed to send group message: " + e.getMessage());
+                        e.printStackTrace();
+                    }
+                    break;
+                case "8":
                     try {
                         String filePath = ConsoleInput.readLine(scanner, "Enter path to file: ").trim();
                         String recipientId = ConsoleInput.readLine(scanner, "Enter recipient ID: ").trim();
@@ -143,10 +264,10 @@ public class Main {
                         e.printStackTrace();
                     }
                     break;
-                case "8":
-                    System.out.println("[DEBUG] Option 8 selected - Tic Tac Toe (not implemented yet)");
-                    break;
                 case "9":
+                    System.out.println("[DEBUG] Option 9 selected - Play Tic Tac Toe (not implemented yet)");
+                    break;
+                case "10":
                     System.out.println("\n=== KNOWN PROFILES ===");
                     profileHandler.getKnownProfiles().forEach((id, data) -> {
                         String name = data.getOrDefault("DISPLAY_NAME", id);
@@ -154,7 +275,7 @@ public class Main {
                         System.out.println(name + " (" + id + ") - " + stat);
                     });
                     break;
-                    case "10":
+                case "11":
                     System.out.println("1. Follow user");
                     System.out.println("2. Unfollow user");
                     String choice = ConsoleInput.readLine(scanner, "Choose: ").trim();
@@ -173,8 +294,7 @@ public class Main {
                         e.printStackTrace();
                     }
                     break;
-                
-                case "11":
+                case "12":
                     verbose = !verbose;
                     main.utils.VerboseLogger.setEnabled(verbose);
                     System.out.println("[DEBUG] Verbose mode toggled to: " + (verbose ? "ON" : "OFF"));
@@ -196,18 +316,22 @@ public class Main {
         System.out.println("2. Send DM");
         System.out.println("3. Like a Post");
         System.out.println("4. View Groups");
-        System.out.println("5. Create / Update Group");
-        System.out.println("6. Send Group Message");
-        System.out.println("7. File Transfer");
-        System.out.println("8. Play Tic Tac Toe");
-        System.out.println("9. View Profiles");
-        System.out.println("10. Follow / Unfollow User");
-        System.out.println("11. Toggle Verbose Mode");
+        System.out.println("5. Create Group");
+        System.out.println("6. Update Group");
+        System.out.println("7. Send Group Message");
+        System.out.println("8. File Transfer");
+        System.out.println("9. Play Tic Tac Toe");
+        System.out.println("10. View Profiles");
+        System.out.println("11. Follow / Unfollow User");
+        System.out.println("12. Toggle Verbose Mode");
         System.out.println("0. Exit");
         System.out.print("Select option: ");
     }
 
-    private static void startListener(UDPSocketManager socketManager, PostHandler postHandler, DMHandler dmHandler, FileHandler fileHandler, ProfileHandler profileHandler, FollowHandler followHandler) {
+    private static void startListener(UDPSocketManager socketManager, PostHandler postHandler,
+                                      DMHandler dmHandler, FileHandler fileHandler,
+                                      ProfileHandler profileHandler, FollowHandler followHandler,
+                                      GroupHandler groupHandler) {
         try {
             System.out.println("[DEBUG] Listener started, waiting for messages...");
             while (true) {
@@ -215,35 +339,27 @@ public class Main {
                 if (msg == null) continue;
 
                 InetAddress senderIP = socketManager.getLastSenderAddress();
-
                 Map<String, String> parsed = MessageParser.parse(msg);
-                String userId = parsed.get("USER_ID");
-                if (userId == null) {
-                    userId = parsed.get("FROM");
-                }
 
+                String userId = parsed.getOrDefault("USER_ID", parsed.get("FROM"));
                 String type = parsed.get("TYPE");
 
-                if ("ACK".equals(type)) {
-                    // Skip IP verification for ACK messages
-                } else if (!IPLogger.verifyIP(userId, senderIP.getHostAddress())) {
+                if (!"ACK".equals(type) && !IPLogger.verifyIP(userId, senderIP.getHostAddress())) {
                     VerboseLogger.drop("IP mismatch for user " + userId + " from " + senderIP.getHostAddress());
                     continue;
                 }
 
                 String expectedScope = getExpectedTokenScope(type);
-                if (expectedScope != null) {
-                    if (!TokenValidator.validate(parsed, expectedScope)) {
-                        VerboseLogger.drop("Invalid or expired token or scope mismatch");
-                        continue;
-                    }
+                if (expectedScope != null && !TokenValidator.validate(parsed, expectedScope)) {
+                    VerboseLogger.drop("Invalid or expired token or scope mismatch");
+                    continue;
                 }
 
                 switch (type) {
                     case "POST" -> postHandler.handle(parsed, senderIP.getHostAddress());
                     case "DM" -> dmHandler.handle(parsed);
-                    case "FILE_OFFER", "FILE_CHUNK", "FILE_RECEIVED" ->
-                            fileHandler.handle(parsed, senderIP.getHostAddress());
+                    case "GROUP_CREATE", "GROUP_UPDATE", "GROUP_MESSAGE" -> groupHandler.handle(parsed, senderIP.getHostAddress());
+                    case "FILE_OFFER", "FILE_CHUNK", "FILE_RECEIVED" -> fileHandler.handle(parsed, senderIP.getHostAddress());
                     case "ACK" -> {
                         fileHandler.handleAck(parsed);
                         dmHandler.handleAck(parsed);
@@ -251,7 +367,7 @@ public class Main {
                     case "PROFILE" -> profileHandler.handle(parsed, senderIP.getHostAddress());
                     case "FOLLOW", "UNFOLLOW" -> followHandler.handle(parsed, senderIP.getHostAddress());
                     default -> VerboseLogger.log("Unhandled TYPE: " + type);
-                }                
+                }
             }
         } catch (Exception e) {
             System.err.println("Listener error: " + e.getMessage());
@@ -269,7 +385,7 @@ public class Main {
             case "FOLLOW", "UNFOLLOW" -> "follow";
             case "GROUP_CREATE", "GROUP_UPDATE", "GROUP_MESSAGE" -> "group";
             case "REVOKE" -> "revoke";
-            case "PING", "ACK", "PROFILE" -> null; 
+            case "PING", "ACK", "PROFILE" -> null;
             default -> null;
         };
     }

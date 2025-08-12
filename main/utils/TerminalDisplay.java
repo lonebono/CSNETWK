@@ -34,4 +34,23 @@ public class TerminalDisplay {
         System.out.println("\nUser " + sender + " is sending you a file: " + filename + ". Do you accept?");
         System.out.println("----------------");
     }
+
+    public static void displayGroupCreate(String groupName) {
+        System.out.println("\n=== GROUP CREATE ===");
+        System.out.println("You’ve been added to " + groupName);
+        System.out.println("----------------");
+    }
+
+    public static void displayGroupUpdate(String groupName, boolean stillMember) {
+        System.out.println("\n=== GROUP UPDATE ===");
+        System.out.println("The group \"" + groupName + "\" member list was updated.");
+        System.out.println("----------------");
+    }
+
+    public static void displayGroupMessage(String fromUser, String groupName, String content) {
+        System.out.println("\n=== GROUP MESSAGE ===");
+        System.out.println(fromUser + " sent \"" + content + "\" to group \"" + groupName + "\"");
+        System.out.println("----------------");
+    }
+
 }
