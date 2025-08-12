@@ -10,7 +10,7 @@ public class FileChunker {
         int chunkNum = 1;
 
         System.out.println(
-                "[DEBUG] Starting to chunk file of size " + totalLength + " bytes with chunk size " + chunkSize);
+                "Starting to chunk file of size " + totalLength + " bytes with chunk size " + chunkSize);
 
         while (offset < totalLength) {
             int end = Math.min(offset + chunkSize, totalLength);
@@ -18,12 +18,12 @@ public class FileChunker {
             System.arraycopy(fileBytes, offset, chunk, 0, chunk.length);
             String base64Chunk = Base64.getEncoder().encodeToString(chunk);
             chunks.add(base64Chunk);
-            System.out.println("[DEBUG] Created chunk #" + chunkNum + " with byte size " + chunk.length);
+            System.out.println("Created chunk #" + chunkNum + " with byte size " + chunk.length);
             offset += chunkSize;
             chunkNum++;
         }
 
-        System.out.println("[DEBUG] Completed chunking into " + chunks.size() + " chunks.");
+        System.out.println("Completed chunking into " + chunks.size() + " chunks.");
 
         return chunks;
     }

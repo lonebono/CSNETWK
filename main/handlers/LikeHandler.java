@@ -20,7 +20,7 @@ public class LikeHandler {
     public LikeHandler(UDPSocketManager socketManager, String currentUser) {
         this.socketManager = socketManager;
         this.currentUser = currentUser;
-        VerboseLogger.log("[DEBUG] LikeHandler created for user: " + currentUser);
+        VerboseLogger.log("LikeHandler created for user: " + currentUser);
     }
 
     /**

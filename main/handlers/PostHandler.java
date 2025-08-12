@@ -46,7 +46,7 @@ public class PostHandler {
         message.put("TOKEN", token);
 
         if (VerboseLogger.isEnabled()) {
-            System.out.println("[DEBUG] Sending post to followed peers:");
+            System.out.println("Sending post to followed peers:");
             message.forEach((k, v) -> System.out.println("  " + k + ": " + v));
         }
 
@@ -79,7 +79,7 @@ public class PostHandler {
 
         if (!isFollowed) {
             if (VerboseLogger.isEnabled()) {
-                System.out.println("[DEBUG] Ignoring post from non-followed user: " + senderUserId);
+                System.out.println("Ignoring post from non-followed user: " + senderUserId);
             }
             return;
         }

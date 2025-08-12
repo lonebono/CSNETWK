@@ -48,7 +48,7 @@ public class ProfileHandler {
         InetAddress broadcastAddress = InetAddress.getByName("192.168.100.255"); // or dynamic
         socketManager.sendMessage(serialized, broadcastAddress, 50999);
 
-        /*if (VerboseLogger.isEnabled()) {
+        /*if (VerboseLogger.isEnabled()) { 
             System.out.println("[DEBUG] Sending PROFILE to " + broadcastAddress.getHostAddress() + ":50999");
             System.out.println("[DEBUG] PROFILE message:\n" + serialized);
         }*/

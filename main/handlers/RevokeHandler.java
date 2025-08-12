@@ -19,7 +19,7 @@ public class RevokeHandler {
     public RevokeHandler(UDPSocketManager socketManager, String currentUser) {
         this.socketManager = socketManager;
         this.currentUser = currentUser;
-        VerboseLogger.log("[DEBUG] RevokeHandler created for user: " + currentUser);
+        VerboseLogger.log("RevokeHandler created for user: " + currentUser);
     }
 
     /**

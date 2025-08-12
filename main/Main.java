@@ -24,7 +24,7 @@ public class Main {
                 }
             }
 
-            System.out.println("[DEBUG] Starting LSNP on port " + PORT);
+            System.out.println("Starting LSNP on port " + PORT);
             socketManager = new UDPSocketManager(PORT);
             InetAddress localIP = InetAddress.getLocalHost();
             System.out.println("Local IP: " + localIP.getHostAddress());
@@ -33,7 +33,7 @@ public class Main {
             String displayName = ConsoleInput.readLine(scanner, "Enter display name: ").trim();
             String status = ConsoleInput.readLine(scanner, "Enter status message: ").trim();
 
-            System.out.println("[DEBUG] Current user set to: " + currentUser);
+            System.out.println("Current user set to: " + currentUser);
 
             DMHandler dmHandler = new DMHandler(socketManager, currentUser);
             FileHandler fileHandler = new FileHandler(socketManager, currentUser);
@@ -63,7 +63,7 @@ public class Main {
                 }
             }).start();
 
-            System.out.println("[DEBUG] Starting listener thread...");
+            System.out.println("Starting listener thread...");
             new Thread(() -> startListener(socketManager, postHandler, dmHandler, fileHandler, profileHandler, followHandler, groupHandler, likeHandler, revokeHandler, ticTacToeHandler)).start();
 
             runMenu(scanner, socketManager, postHandler, dmHandler, fileHandler, profileHandler, followHandler, groupHandler, groupManager, groupStore, likeHandler, revokeHandler, ticTacToeHandler);
@@ -122,7 +122,7 @@ public class Main {
         // ---- Normal menu display & handling ----
         printMenu();
         String input = scanner.nextLine();
-        System.out.println("[DEBUG] User selected menu option: " + input);
+        System.out.println("User selected menu option: " + input);
 
         switch (input) {
             case "1":
@@ -152,7 +152,7 @@ public class Main {
             case "3":
                 try {
                     String likedMessageId = ConsoleInput.readLine(scanner, "Enter MESSAGE_ID of the post to like: ");
-                    System.out.println("[DEBUG] Liking post with MESSAGE_ID: " + likedMessageId);
+                    System.out.println("Liking post with MESSAGE_ID: " + likedMessageId);
                     likeHandler.sendLike(likedMessageId);
                 } catch (Exception e) {
                     System.err.println("Error sending like: " + e.getMessage());
@@ -161,7 +161,7 @@ public class Main {
                 break;
 
             case "4":
-                System.out.println("[DEBUG] Listing all groups:");
+                System.out.println("Listing all groups:");
                 for (String gid : groupStore.getAllGroupIds()) {
                     GroupStore.Group g = groupStore.getGroup(gid);
                     System.out.println("Group ID: " + gid + ", Name: " + g.getGroupName() + ", Members: " + g.getMembers());
@@ -346,13 +346,13 @@ public class Main {
             case "12":
                 verbose = !verbose;
                 main.utils.VerboseLogger.setEnabled(verbose);
-                System.out.println("[DEBUG] Verbose mode toggled to: " + (verbose ? "ON" : "OFF"));
+                System.out.println("Verbose mode toggled to: " + (verbose ? "ON" : "OFF"));
                 break;
 
             case "13":
                 try {
                     String tokenToRevoke = ConsoleInput.readLine(scanner, "Enter the exact token string to revoke: ");
-                    System.out.println("[DEBUG] Revoking token: " + tokenToRevoke);
+                    System.out.println("Revoking token: " + tokenToRevoke);
                     revokeHandler.sendRevoke(tokenToRevoke);
                 } catch (Exception e) {
                     System.err.println("Error sending revoke request: " + e.getMessage());
@@ -400,7 +400,7 @@ public class Main {
                                       RevokeHandler revokeHandler,
                                       TicTacToeHandler ticTacToeHandler) {
         try {
-            System.out.println("[DEBUG] Listener started, waiting for messages...");
+            System.out.println("Listener started, waiting for messages...");
             while (true) {
                 String msg = socketManager.receiveMessage();
                 if (msg == null) continue;
